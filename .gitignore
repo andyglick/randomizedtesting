@@ -7,6 +7,11 @@ target/
 # IntelliJ
 .idea
 .iml
+.ipr
+.iws
+
+# Atassian
+atlassian-ide-plugin.xml
 
 # Maven
 *.versionsBackup
