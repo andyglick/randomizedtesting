@@ -1,10 +1,6 @@
 package com.carrotsearch.ant.tasks.junit4;
 
-import static com.carrotsearch.randomizedtesting.SysGlobals.CURRENT_PREFIX;
-import static com.carrotsearch.randomizedtesting.SysGlobals.SYSPROP_PREFIX;
-import static com.carrotsearch.randomizedtesting.SysGlobals.SYSPROP_RANDOM_SEED;
-import static com.carrotsearch.randomizedtesting.SysGlobals.SYSPROP_TESTCLASS;
-import static com.carrotsearch.randomizedtesting.SysGlobals.SYSPROP_TESTMETHOD;
+import static com.carrotsearch.randomizedtesting.SysGlobals.*;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -23,9 +19,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.Deque;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
@@ -76,31 +74,24 @@ import com.carrotsearch.ant.tasks.junit4.events.aggregated.AggregatedQuitEvent;
 import com.carrotsearch.ant.tasks.junit4.events.aggregated.AggregatedStartEvent;
 import com.carrotsearch.ant.tasks.junit4.events.aggregated.AggregatingListener;
 import com.carrotsearch.ant.tasks.junit4.events.aggregated.ChildBootstrap;
+import com.carrotsearch.ant.tasks.junit4.events.aggregated.JvmOutputEvent;
 import com.carrotsearch.ant.tasks.junit4.listeners.AggregatedEventListener;
 import com.carrotsearch.ant.tasks.junit4.slave.SlaveMain;
 import com.carrotsearch.ant.tasks.junit4.slave.SlaveMainSafe;
 import com.carrotsearch.randomizedtesting.ClassGlobFilter;
 import com.carrotsearch.randomizedtesting.FilterExpressionParser;
+import com.carrotsearch.randomizedtesting.FilterExpressionParser.Node;
 import com.carrotsearch.randomizedtesting.MethodGlobFilter;
 import com.carrotsearch.randomizedtesting.RandomizedRunner;
 import com.carrotsearch.randomizedtesting.SeedUtils;
 import com.carrotsearch.randomizedtesting.SysGlobals;
 import com.carrotsearch.randomizedtesting.TeeOutputStream;
-import com.carrotsearch.randomizedtesting.FilterExpressionParser.Node;
 import com.carrotsearch.randomizedtesting.generators.RandomPicks;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
-import com.google.common.collect.Collections2;
-import com.google.common.collect.HashMultiset;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Multimaps;
-import com.google.common.collect.Multiset;
-import com.google.common.collect.Ordering;
 import com.google.common.eventbus.EventBus;
 import com.google.common.eventbus.Subscribe;
 import com.google.common.io.CharStreams;
@@ -199,9 +190,10 @@ public class JUnit4 extends Task {
     PIPE,
     IGNORE,
     FAIL,
-    WARN
+    WARN,
+    LISTENERS
   }
-  
+
   /** What to do when there were no executed tests (all ignored or none at all?). */
   public static enum NoTestsAction {
     IGNORE,
@@ -213,7 +205,7 @@ public class JUnit4 extends Task {
    * @see #setJvmOutputAction(String)
    */
   public EnumSet<JvmOutputAction> jvmOutputAction = EnumSet.of(
-      JvmOutputAction.PIPE,
+      JvmOutputAction.LISTENERS,
       JvmOutputAction.WARN);
 
   /**
@@ -280,12 +272,12 @@ public class JUnit4 extends Task {
   /**
    * Listeners listening on the event bus.
    */
-  private List<Object> listeners = Lists.newArrayList();
+  private List<Object> listeners = new ArrayList<>();
 
   /**
    * Balancers scheduling tests for individual JVMs in parallel mode.
    */
-  private List<SuiteBalancer> balancers = Lists.newArrayList();
+  private List<SuiteBalancer> balancers = new ArrayList<>();
 
   /**
    * Class loader used to resolve annotations and classes referenced from annotations
@@ -306,7 +298,7 @@ public class JUnit4 extends Task {
   /**
    * A list of temporary files to leave or remove if build passes.
    */
-  private List<File> temporaryFiles = Collections.synchronizedList(Lists.<File>newArrayList());
+  private List<File> temporaryFiles = Collections.synchronizedList(new ArrayList<File>());
 
   /**
    * @see #setSeed(String)
@@ -840,7 +832,7 @@ public class JUnit4 extends Task {
 
     // Initialize random if not already provided.
     if (random == null) {
-      this.random = com.google.common.base.Objects.firstNonNull( 
+      this.random = MoreObjects.firstNonNull( 
           Strings.emptyToNull(getProject().getProperty(SYSPROP_RANDOM_SEED())),
           SeedUtils.formatSeed(new Random().nextLong()));
     }
@@ -912,7 +904,7 @@ public class JUnit4 extends Task {
       }
 
       final int jvmCount = determineForkedJvmCount(testCollection);
-      final List<ForkedJvmInfo> slaveInfos = Lists.newArrayList();
+      final List<ForkedJvmInfo> slaveInfos = new ArrayList<>();
       for (int jvmid = 0; jvmid < jvmCount; jvmid++) {
         final ForkedJvmInfo slaveInfo = new ForkedJvmInfo(jvmid, jvmCount);
         slaveInfos.add(slaveInfo);
@@ -954,7 +946,7 @@ public class JUnit4 extends Task {
       }
 
       // Create callables for the executor.
-      final List<Callable<Void>> slaves = Lists.newArrayList();
+      final List<Callable<Void>> slaves = new ArrayList<>();
       for (int slave = 0; slave < jvmCount; slave++) {
         final ForkedJvmInfo slaveInfo = slaveInfos.get(slave);
         slaves.add(new Callable<Void>() {
@@ -1124,24 +1116,21 @@ public class JUnit4 extends Task {
     
     // Order test suites identically for balancers.
     // and split into replicated and non-replicated suites.
-    Multimap<Boolean,TestClass> partitioned = sortAndSplitReplicated(testsCollection.testClasses);
-    Function<TestClass,String> extractClassName = new Function<TestClass,String>() {
-      @Override
-      public String apply(TestClass input) {
-        return input.className;
-      }
-    };
-    Collection<String> replicated = Collections2.transform(partitioned.get(true), extractClassName);
-    Collection<String> suites     = Collections2.transform(partitioned.get(false), extractClassName);
+    Map<Boolean,List<String>> partitioned = sortAndSplitReplicated(testsCollection.testClasses);
 
-    final List<SuiteBalancer> balancersWithFallback = Lists.newArrayList(balancers);
+    Collection<String> replicated = partitioned.get(true);
+    Collection<String> suites     = partitioned.get(false);
+
+    final List<SuiteBalancer> balancersWithFallback = new ArrayList<>(balancers);
     balancersWithFallback.add(new RoundRobinBalancer());
 
     // Go through all the balancers, the first one to assign a suite wins.
-    final Multiset<String> remaining = HashMultiset.create(suites);
-    final Map<Integer,List<Assignment>> perJvmAssignments = Maps.newHashMap();
+    final List<String> remaining = new ArrayList<>(suites);
+    Collections.sort(remaining);
+
+    final Map<Integer,List<Assignment>> perJvmAssignments = new HashMap<>();
     for (ForkedJvmInfo si : jvmInfo) {
-      perJvmAssignments.put(si.id, Lists.<Assignment> newArrayList());
+      perJvmAssignments.put(si.id, new ArrayList<Assignment>());
     }
     final int jvmCount = jvmInfo.size();
     for (SuiteBalancer balancer : balancersWithFallback) {
@@ -1184,7 +1173,7 @@ public class JUnit4 extends Task {
 
     // Take a fraction of suites scheduled as last on each slave and move them to a common
     // job-stealing queue.
-    List<SuiteHint> stealingQueueWithHints = Lists.newArrayList();
+    List<SuiteHint> stealingQueueWithHints = new ArrayList<>();
     for (ForkedJvmInfo si : jvmInfo) {
       final List<Assignment> assignments = perJvmAssignments.get(si.id);
       int moveToCommon = (int) (assignments.size() * dynamicAssignmentRatio);
@@ -1198,7 +1187,7 @@ public class JUnit4 extends Task {
         movedToCommon.clear();
       }
 
-      final ArrayList<String> slaveSuites = (si.testSuites = Lists.newArrayList());
+      final ArrayList<String> slaveSuites = (si.testSuites = new ArrayList<>());
       for (Assignment a : assignments) {
         slaveSuites.add(a.suiteName);
       }
@@ -1235,29 +1224,38 @@ public class JUnit4 extends Task {
       log("  " + suiteHint.suiteName + " " + suiteHint.cost, Project.MSG_VERBOSE);
     }
 
-    List<String> stealingQueue = Lists.newArrayListWithCapacity(stealingQueueWithHints.size());
+    List<String> stealingQueue = new ArrayList<>(stealingQueueWithHints.size());
     for (SuiteHint suiteHint : stealingQueueWithHints) {
       stealingQueue.add(suiteHint.suiteName);
     }
     return stealingQueue;
   }
 
-  private Multimap<Boolean,TestClass> sortAndSplitReplicated(List<TestClass> testClasses) {
-    List<TestClass> sorted = Ordering.natural()
-      .onResultOf(new Function<TestClass,String>() {
-        @Override
-        public String apply(TestClass input) {
-          return input.className + ";" + input.replicate;
-        }
-      })
-      .sortedCopy(testClasses);
-
-    return Multimaps.index(sorted, new Function<TestClass,Boolean>() {
+  private Map<Boolean,List<String>> sortAndSplitReplicated(List<TestClass> testClasses) {
+    ArrayList<TestClass> sorted = new ArrayList<>(testClasses);
+    Collections.sort(sorted, new Comparator<TestClass>() {
       @Override
-      public Boolean apply(TestClass t) {
-        return t.replicate;
+      public int compare(TestClass t1, TestClass t2) {
+        String s1 = t1.className + ";" + t1.replicate;
+        String s2 = t2.className + ";" + t2.replicate;
+        return s1.compareTo(s2);
       }
     });
+
+    List<String> replicated = new ArrayList<>();
+    List<String> nonreplicated = new ArrayList<>();
+    for (TestClass tc : sorted) {
+      if (tc.replicate) {
+        replicated.add(tc.className);
+      } else {
+        nonreplicated.add(tc.className);
+      }
+    }
+
+    Map<Boolean,List<String>> result = new HashMap<>();
+    result.put(Boolean.TRUE, replicated);
+    result.put(Boolean.FALSE, nonreplicated);
+    return result;
   }
 
   /**
@@ -1492,10 +1490,10 @@ public class JUnit4 extends Task {
         Files.asByteSource(classNamesDynamic).copyTo(Files.asByteSink(classNamesFile, FileWriteMode.APPEND));
         classNamesDynamic.delete();
         streamsBufferFile.delete();
-        
+
         // Check sysout/syserr lengths.
-        checkJvmOutput(sysoutFile, slave, "stdout");
-        checkJvmOutput(syserrFile, slave, "stderr");        
+        checkJvmOutput(aggregatedBus, sysoutFile, slave, "stdout");
+        checkJvmOutput(aggregatedBus, syserrFile, slave, "stderr");        
       }
     }
 
@@ -1510,11 +1508,14 @@ public class JUnit4 extends Task {
     }
   }
 
-  private void checkJvmOutput(File file, ForkedJvmInfo slave, String fileName) {
+  private void checkJvmOutput(EventBus aggregatedBus, File file, ForkedJvmInfo slave, String fileName) {
     if (file.length() > 0) {
       String message = "JVM J" + slave.id + ": " + fileName + " was not empty, see: " + file;
       if (jvmOutputAction.contains(JvmOutputAction.WARN)) {
         log(message, Project.MSG_WARN);
+      }
+      if (jvmOutputAction.contains(JvmOutputAction.LISTENERS)) {
+        aggregatedBus.post(new JvmOutputEvent(slave, file));
       }
       if (jvmOutputAction.contains(JvmOutputAction.PIPE)) {
         log(">>> JVM J" + slave.id + ": " + fileName + " (verbatim) ----", Project.MSG_INFO);

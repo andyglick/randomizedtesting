@@ -5,10 +5,10 @@ target/
 .settings
 
 # IntelliJ
-.idea
-.iml
-.ipr
-.iws
+.idea/
+*.iml
+*.ipr
+*.iws
 
 # Atassian
 atlassian-ide-plugin.xml

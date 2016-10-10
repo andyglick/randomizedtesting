@@ -5,9 +5,11 @@ import static com.carrotsearch.ant.tasks.junit4.FormattingUtils.*;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.io.Reader;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.nio.charset.Charset;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.HashSet;
@@ -36,16 +38,17 @@ import com.carrotsearch.ant.tasks.junit4.events.aggregated.AggregatedSuiteStarte
 import com.carrotsearch.ant.tasks.junit4.events.aggregated.AggregatedTestResultEvent;
 import com.carrotsearch.ant.tasks.junit4.events.aggregated.ChildBootstrap;
 import com.carrotsearch.ant.tasks.junit4.events.aggregated.HeartBeatEvent;
+import com.carrotsearch.ant.tasks.junit4.events.aggregated.JvmOutputEvent;
 import com.carrotsearch.ant.tasks.junit4.events.aggregated.PartialOutputEvent;
 import com.carrotsearch.ant.tasks.junit4.events.aggregated.TestStatus;
 import com.carrotsearch.ant.tasks.junit4.events.mirrors.FailureMirror;
 import com.carrotsearch.randomizedtesting.WriterOutputStream;
 import com.google.common.base.Charsets;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.eventbus.Subscribe;
 import com.google.common.io.CharSink;
+import com.google.common.io.CharStreams;
 import com.google.common.io.Closeables;
 import com.google.common.io.FileWriteMode;
 import com.google.common.io.Files;
@@ -104,7 +107,7 @@ public class TextReport implements AggregatedEventListener {
    */
   private static EnumMap<TestStatus, String> statusNames;
   static {
-    statusNames = Maps.newEnumMap(TestStatus.class);
+    statusNames = new EnumMap<>(TestStatus.class);
     for (TestStatus s : TestStatus.values()) {
       statusNames.put(s,
           s == TestStatus.IGNORED_ASSUMPTION
@@ -136,7 +139,7 @@ public class TextReport implements AggregatedEventListener {
    * Initialize {@link #displayStatus}.
    */
   {
-    displayStatus = Maps.newEnumMap(TestStatus.class);
+    displayStatus = new EnumMap<>(TestStatus.class);
     for (TestStatus s : TestStatus.values()) {
       displayStatus.put(s, true);
     }
@@ -198,12 +201,13 @@ public class TextReport implements AggregatedEventListener {
   private int showNumFailuresAtEnd = 3;
   
   /** A list of failed tests, if to be displayed at the end. */
-  private List<Description> failedTests = Lists.newArrayList();
+  private List<Description> failedTests = new ArrayList<>();
 
   /** Stack trace filters. */
-  private List<StackTraceFilter> stackFilters = Lists.newArrayList();
+  private List<StackTraceFilter> stackFilters = new ArrayList<>();
 
   private int totalSuites;
+  private AtomicInteger totalErrors = new AtomicInteger();
   private AtomicInteger suitesCompleted = new AtomicInteger();
   private String seed;
 
@@ -436,6 +440,18 @@ public class TextReport implements AggregatedEventListener {
   }
 
   @Subscribe
+  public void onJvmOutput(JvmOutputEvent e) throws IOException {
+    final String id = Integer.toString(e.getSlave().id);
+    output.append(">>> JVM J").append(id)
+          .append(" emitted unexpected output (verbatim) ----\n");
+
+    try (Reader r = Files.newReader(e.getJvmOutputFile(), e.getSlave().getCharset())) {
+      CharStreams.copy(r, output);
+    }
+    output.append("<<< JVM J" + id + ": EOF ----\n");    
+  }
+
+  @Subscribe
   public void onTestResult(AggregatedTestResultEvent e) throws IOException {
     if (isPassthrough() && displayStatus.get(e.getStatus())) {
       flushOutput();
@@ -481,7 +497,7 @@ public class TextReport implements AggregatedEventListener {
   }
 
   private void emitBufferedEvents(AggregatedSuiteResultEvent e) throws IOException {
-    final IdentityHashMap<TestFinishedEvent,AggregatedTestResultEvent> eventMap = Maps.newIdentityHashMap();
+    final IdentityHashMap<TestFinishedEvent,AggregatedTestResultEvent> eventMap = new IdentityHashMap<>();
     for (AggregatedTestResultEvent tre : e.getTests()) {
       eventMap.put(tre.getTestFinishedEvent(), tre);
     }
@@ -551,10 +567,12 @@ public class TextReport implements AggregatedEventListener {
     assert showSuiteSummary;
 
     final StringBuilder b = new StringBuilder();
-    b.append(String.format(Locale.ENGLISH, "%sCompleted [%d/%d]%s in %.2fs, ",
+    final int totalErrors = this.totalErrors.addAndGet(e.isSuccessful() ? 0 : 1);
+    b.append(String.format(Locale.ENGLISH, "%sCompleted [%d/%d%s]%s in %.2fs, ",
         shortTimestamp(e.getStartTimestamp() + e.getExecutionTime()),
         suitesCompleted,
         totalSuites,
+        totalErrors == 0 ? "" : " (" + totalErrors + "!)",
         e.getSlave().slaves > 1 ? " on J" + e.getSlave().id : "",
         e.getExecutionTime() / 1000.0d));
     b.append(e.getTests().size()).append(Pluralize.pluralize(e.getTests().size(), " test"));
@@ -623,7 +641,7 @@ public class TextReport implements AggregatedEventListener {
             if (fm.isAssumptionViolation()) {
                 pos.write(String.format(Locale.ENGLISH, 
                     "Assumption #%d: %s",
-                    count, com.google.common.base.Objects.firstNonNull(fm.getMessage(), "(no message)")));
+                    count, MoreObjects.firstNonNull(fm.getMessage(), "(no message)")));
             } else {
                 pos.write(String.format(Locale.ENGLISH, 
                     "Throwable #%d: %s",

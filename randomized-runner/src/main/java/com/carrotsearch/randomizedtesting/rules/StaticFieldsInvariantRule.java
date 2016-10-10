@@ -93,7 +93,14 @@ public class StaticFieldsInvariantRule implements TestRule {
         ArrayList<Entry> fieldsAndValues = new ArrayList<Entry>();
         ArrayList<Object> values = new ArrayList<Object>();
         for (Class<?> c = testClass; countSuperclasses && c.getSuperclass() != null; c = c.getSuperclass()) {
-          for (final Field field : c.getDeclaredFields()) {
+          final Class<?> target = c;
+          Field[] allFields = AccessController.doPrivileged(new PrivilegedAction<Field[]>() {
+            @Override
+            public Field[] run() {
+              return target.getDeclaredFields();
+            }
+          });
+          for (final Field field : allFields) {
             if (Modifier.isStatic(field.getModifiers()) && 
                 !field.getType().isPrimitive() &&
                 accept(field)) {
@@ -117,7 +124,31 @@ public class StaticFieldsInvariantRule implements TestRule {
           }
         }
 
-        final long ramUsage = RamUsageEstimator.sizeOfAll(values);
+        final long ramUsage;
+        try {
+          ramUsage = RamUsageEstimator.sizeOfAll(values);
+        } catch (Exception ex) {
+          // some problem occurred while trying to measure (e.g. Java 9, SecurityManager).
+          // we iterate over all fields to get the "bad one":
+          final StringBuilder b = new StringBuilder();
+          b.append("Clean up static fields (in @AfterClass?) and null them, ")
+            .append("your test still has references to classes of which the ")
+            .append("sizes cannot be measured due to security restrictions or Java 9 ")
+            .append("module encapsulation:");
+          for (final Entry e : fieldsAndValues) {
+            try {
+              RamUsageEstimator.sizeOf(e.value);
+            } catch (Exception ex1) {
+              b.append("\n  - ").append(e.field);
+            }
+          }
+          
+          AssertionFailedError err = new AssertionFailedError(b.toString());
+          err.initCause(ex);
+          errors.add(err);
+          return;
+        }
+        
         if (ramUsage > leakThreshold) {
           // Count per-field information to get the heaviest fields.
           for (Entry e : fieldsAndValues) {

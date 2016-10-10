@@ -1,5 +1,7 @@
 package com.carrotsearch.randomizedtesting.rules;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -10,7 +12,6 @@ import org.junit.Test;
 import org.junit.rules.RuleChain;
 import org.junit.rules.TestRule;
 import org.junit.runner.Description;
-import org.junit.runner.JUnitCore;
 import org.junit.runner.Result;
 import org.junit.runners.model.Statement;
 
@@ -84,19 +85,19 @@ public class TestStaticFieldsInvariantRule extends WithNestedTestClass {
 
   @Test
   public void testReferencesCountedMultipleTimes() {
-    Result runClasses = JUnitCore.runClasses(MultipleReferences.class);
+    Result runClasses = runClasses(MultipleReferences.class);
     Assertions.assertThat(runClasses.getFailures()).isEmpty();
   }
 
   @Test
   public void testPassingUnderThreshold() {
-    Result runClasses = JUnitCore.runClasses(Smaller.class);
+    Result runClasses = runClasses(Smaller.class);
     Assertions.assertThat(runClasses.getFailures()).isEmpty();
   }
   
   @Test
   public void testFailingAboveThreshold() {
-    Result runClasses = JUnitCore.runClasses(Exceeding.class);
+    Result runClasses = runClasses(Exceeding.class);
     Assertions.assertThat(runClasses.getFailures()).hasSize(1);
     
     Assertions.assertThat(runClasses.getFailures().get(0).getTrace())
@@ -105,5 +106,42 @@ public class TestStaticFieldsInvariantRule extends WithNestedTestClass {
       .contains(".field2")
       .contains(".field3")
       .doesNotContain(".field5");
+  }
+  
+  static class Holder {
+    private final Path path;
+    
+    Holder() {
+      this.path = Paths.get(".");
+      final String name = this.path.getClass().getName();
+      RandomizedTest.assumeTrue(Path.class.getName() + " is not implemented by internal class in this JVM: " + name,
+        name.startsWith("sun.") || name.startsWith("jdk."));
+    }
+  }
+  
+  public static class FailsJava9 extends Base {
+    static Holder field0; 
+    
+    @BeforeClass
+    private static void setup() throws Exception {
+      field0 = new Holder();
+    }
+  }
+
+  @Test
+  public void testJava9Jigsaw() {
+    // check if we have Java 9 module system:
+    try {
+      Class.class.getMethod("getModule");
+    } catch (Exception e) {
+      RandomizedTest.assumeTrue("This test requires Java 9 module system (Jigsaw)", false);
+    }
+  
+    Result runClasses = runClasses(FailsJava9.class);
+    Assertions.assertThat(runClasses.getFailures()).hasSize(1);
+    
+    Assertions.assertThat(runClasses.getFailures().get(0).getTrace())
+      .contains("sizes cannot be measured due to security restrictions or Java 9")
+      .contains(".field0");
   }
 }

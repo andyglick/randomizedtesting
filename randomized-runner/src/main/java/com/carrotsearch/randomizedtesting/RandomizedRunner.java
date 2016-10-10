@@ -31,7 +31,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.regex.Pattern;
 
 import org.junit.After;
 import org.junit.AfterClass;
@@ -310,16 +309,6 @@ public final class RandomizedRunner extends Runner implements Filterable {
 
   public GroupEvaluator groupEvaluator;
 
-  /**
-   * What kind of container are we in? Unfortunately we need to adjust
-   * to some "assumptions" containers make about runners.
-   */
-  private static enum RunnerContainer {
-    ECLIPSE,
-    IDEA,
-    UNKNOWN
-  }
-
   /** Creates a new runner for the given class. */
   public RandomizedRunner(Class<?> testClass) throws InitializationError {
     appendSeedParameter = RandomizedTest.systemPropertyAsBoolean(SYSPROP_APPEND_SEED(), false);
@@ -333,10 +322,9 @@ public final class RandomizedRunner extends Runner implements Filterable {
     this.suiteClass = testClass;
     this.classModel = new ClassModel(testClass);
 
-    // Try to detect the container.
-    {
-      this.containerRunner = detectContainer();
-    }
+    // Try to detect the JUnit runner's container. This changes reporting 
+    // behavior slightly.
+    this.containerRunner = detectContainer();
 
     // Initialize the runner's master seed/ randomness source.
     {
@@ -407,8 +395,6 @@ public final class RandomizedRunner extends Runner implements Filterable {
    */
   private static RunnerContainer detectContainer() {
     StackTraceElement [] stack = Thread.currentThread().getStackTrace();
-
-    // Look for Eclipse first.
     if (stack.length > 0) {
       String topClass = stack[stack.length - 1].getClassName();
 
@@ -420,7 +406,6 @@ public final class RandomizedRunner extends Runner implements Filterable {
         return RunnerContainer.IDEA;
       }
     }
-
     return RunnerContainer.UNKNOWN;
   }
 
@@ -647,52 +632,62 @@ public final class RandomizedRunner extends Runner implements Filterable {
         }
       }
 
+      /*
+       * TODO: the logic here should be changed:
+       * - if it's an @Ignored test or it is ignored due to a disabled test group:
+       *     remove from the set
+       *     markAsIgnored(t);
+       * - else, if it's a test that is ignored due to filtering expression:
+       *     remove from the set
+       *     markAsIgnored(t) if running under IDE (only)
+       *     
+       * - there is no need to check filtering rules again in runTestsStatement
+       */
+
       // Filter out test candidates to see if there's anything left. If not,
       // don't bother running class hooks.
       final List<TestCandidate> filtered = getFilteredTestCandidates();
-
-      // Filter out any tests ignored by filtering expression
-      final GroupEvaluator evaluator = RandomizedContext.current().getGroupEvaluator();
-      if (evaluator.hasFilteringExpression()) {
-        for (Iterator<TestCandidate> i = filtered.iterator(); i.hasNext();) {
-          TestCandidate c = i.next();
-          if (evaluator.isTestIgnored(c.method, suiteClass) != null) {
-            i.remove();
+      for (Iterator<TestCandidate> i = filtered.iterator(); i.hasNext();) {
+        TestCandidate c = i.next();
+        if (isTestIgnored(c)) {
+          i.remove();
+          markAsIgnored(notifier, c);
+        } else if (isTestFiltered(groupEvaluator, c)) {
+          // If there is an explicit tests.filter expression, we remove the tests
+          // entirely from the run (so that they don't obscure the view of actual
+          // tests that were executed). For IDEs we need to make an exception, however,
+          // because IDEs expect those tests to be reported back.
+          i.remove();
+          if (containerRunner == RunnerContainer.ECLIPSE ||
+              containerRunner == RunnerContainer.IDEA) {
+            markAsIgnored(notifier, c);
           }
         }
       }
 
       if (!filtered.isEmpty()) {
-        if (areAllRemainingIgnored(filtered)) {
-          for (TestCandidate candidate : filtered) {
-            if (!isTestIgnored(notifier, candidate)) {
-              throw new RuntimeException("Should not reach here.");
+        ThreadLeakControl threadLeakControl = new ThreadLeakControl(notifier, this);
+        Statement s = runTestsStatement(threadLeakControl.notifier(), filtered, threadLeakControl);
+        s = withClassBefores(s);
+        s = withClassAfters(s);
+        s = withClassRules(s);
+        s = withCloseContextResources(s, LifecycleScope.SUITE);
+        s = threadLeakControl.forSuite(s, suiteDescription);
+        try {
+          s.evaluate();
+        } catch (Throwable t) {
+          t = augmentStackTrace(t, runnerRandomness);
+          if (t instanceof AssumptionViolatedException) {
+            // Fire assumption failure before method ignores. (GH-103).
+            notifier.fireTestAssumptionFailed(new Failure(suiteDescription, t));
+
+            // Class level assumptions cause all tests to be ignored.
+            // see Rants#RANT_3
+            for (final TestCandidate c : filtered) {
+              notifier.fireTestIgnored(c.description);
             }
-          }
-        } else {
-          ThreadLeakControl threadLeakControl = new ThreadLeakControl(notifier, this);
-          Statement s = runTestsStatement(threadLeakControl.notifier(), filtered, threadLeakControl);
-          s = withClassBefores(s);
-          s = withClassAfters(s);
-          s = withClassRules(s);
-          s = withCloseContextResources(s, LifecycleScope.SUITE);
-          s = threadLeakControl.forSuite(s, suiteDescription);
-          try {
-            s.evaluate();
-          } catch (Throwable t) {
-            t = augmentStackTrace(t, runnerRandomness);
-            if (t instanceof AssumptionViolatedException) {
-              // Fire assumption failure before method ignores. (GH-103).
-              notifier.fireTestAssumptionFailed(new Failure(suiteDescription, t));
-  
-              // Class level assumptions cause all tests to be ignored.
-              // see Rants#RANT_3
-              for (final TestCandidate c : filtered) {
-                notifier.fireTestIgnored(c.description);
-              }
-            } else {
-              fireTestFailure(notifier, suiteDescription, t);
-            }
+          } else {
+            fireTestFailure(notifier, suiteDescription, t);
           }
         }
       }
@@ -713,16 +708,6 @@ public final class RandomizedRunner extends Runner implements Filterable {
     notifier.removeListener(accounting);
     unsubscribeListeners(notifier);
     context.popAndDestroy();    
-  }
-
-  private boolean areAllRemainingIgnored(List<TestCandidate> filtered) {
-    RunNotifier fake = new RunNotifier();
-    for (TestCandidate candidate : filtered) {
-      if (!isTestIgnored(fake, candidate)) {
-        return false;
-      }
-    }
-    return true;
   }
 
   /**
@@ -763,7 +748,10 @@ public final class RandomizedRunner extends Runner implements Filterable {
           if (threadLeakControl.isTimedOut()) {
             break;
           }
-          if (isTestIgnored(notifier, c)) {
+
+          if (isTestIgnored(c) ||
+              isTestFiltered(groupEvaluator, c)) {
+            markAsIgnored(notifier, c);
             continue;
           }
 
@@ -787,6 +775,21 @@ public final class RandomizedRunner extends Runner implements Filterable {
         }              
       }
     };
+  }
+
+  void markAsIgnored(RunNotifier notifier, TestCandidate c) {
+    if (c.method.getAnnotation(Ignore.class) != null) {
+      notifier.fireTestIgnored(c.description);
+      return;
+    }
+
+    GroupEvaluator ge = RandomizedContext.current().getGroupEvaluator();
+    String ignoreReason = ge.getIgnoreReason(c.method, suiteClass);
+    if (ignoreReason != null) {
+      notifier.fireTestStarted(c.description);
+      notifier.fireTestAssumptionFailed(new Failure(c.description, new InternalAssumptionViolatedException(ignoreReason)));
+      notifier.fireTestFinished(c.description);
+    }
   }
 
   private void fireTestFailure(RunNotifier notifier, Description description, Throwable t) {
@@ -912,13 +915,13 @@ public final class RandomizedRunner extends Runner implements Filterable {
     // Process @After hooks. All @After hooks are processed, regardless of their own exceptions.
     final List<Method> afters = getShuffledMethods(After.class);
     if (!afters.isEmpty()) {
-      final Statement afterAfters = s;
+      final Statement beforeAfters = s;
       s = new Statement() {
         @Override
         public void evaluate() throws Throwable {
           List<Throwable> cumulative = new ArrayList<Throwable>();
           try {
-            afterAfters.evaluate();
+            beforeAfters.evaluate();
           } catch (Throwable t) {
             cumulative.add(t);
           }
@@ -1133,73 +1136,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
       }
     }
 
-    // GH-89.
-    if (testCandidates.size() > 0 && filtered.isEmpty()) {
-      final boolean expandedCandidates = candidatesWithRandomSeeds(testCandidates); 
-      final boolean filtersIncludeSeed = filtersIncludeSeed(testFilters);
-
-      if (expandedCandidates && filtersIncludeSeed) {
-          Logger.getAnonymousLogger().warning(
-              "Empty set of tests for suite class " + suiteClass.getSimpleName() +
-              " after filters applied. This can be caused by an attempt to filter tests with a random" +
-              " or fixed seed different than the filter's. Use the same constant seed " +
-              "(-Dtests.seed=deadbeef) to get a reproducible (and filterable)" +
-              " set of tests.");
-      }
-
-      if (expandedCandidates && !filtersIncludeSeed) {
-        String warningMessage = "Empty set of tests for suite class " + 
-            suiteClass.getSimpleName() +
-            " after filters applied.";
-
-        if (emptyToNull(System.getProperty(SYSPROP_TESTMETHOD())) != null) {
-          warningMessage += " Your method filter property should be a glob pattern to cater for" +
-          		" the random seed appended to each expanded test repetition. Use -D" +
-              SysGlobals.SYSPROP_TESTMETHOD() + "=" +
-              System.getProperty(SYSPROP_TESTMETHOD()) + "*";
-        } else {
-          warningMessage += " This can be caused by an attempt to filter tests by fixed method name" +
-          		" when their repetitions are expanded with a random seed to make their names unique. Use" +
-          		" a globbing pattern in your filters to ignore anything after the method name, for example:" +
-          		" -D" + SysGlobals.SYSPROP_TESTMETHOD() + "=method*";
-        }
-        Logger.getAnonymousLogger().warning(warningMessage);
-      }      
-    }
-
     return filtered;
-  }
-
-  /**
-   * Check if any of the filters includes a description that would suggest it's looking
-   * for a filter with seed. 
-   */
-  private boolean filtersIncludeSeed(List<Filter> filters) {
-    for (Filter f : filters) {
-      if (hasSeedPattern(f.describe()))
-        return true;
-    }
-    return false;
-  }
-
-  /**
-   * Check if this string has a pattern of containing seed.
-   */
-  private boolean hasSeedPattern(String description) {
-    Pattern p = Pattern.compile("seed=\\[");
-    return p.matcher(description).find();
-  }
-
-  /**
-   * Check if the set of test candidates contains tests with seeds. 
-   */
-  private boolean candidatesWithRandomSeeds(List<TestCandidate> testCandidates) {
-    for (TestCandidate tc : testCandidates) {
-      if (hasSeedPattern(tc.description.getMethodName())) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /**
@@ -1214,31 +1151,12 @@ public final class RandomizedRunner extends Runner implements Filterable {
   /** 
    * Returns true if we should ignore this test candidate.
    */
-  private boolean isTestIgnored(RunNotifier notifier, TestCandidate c) {
-    // Check for @Ignore on method early on, like JUnit.
-    if (c.method.getAnnotation(Ignore.class) != null) {
-      notifier.fireTestIgnored(c.description);
-      return true;
-    }
+  private boolean isTestIgnored(TestCandidate c) {
+    return c.method.getAnnotation(Ignore.class) != null;
+  }
 
-    final GroupEvaluator evaluator = RandomizedContext.current().getGroupEvaluator();
-    String reasonIgnored = evaluator.isTestIgnored(c.method, suiteClass);
-    if (reasonIgnored != null) {
-      /*
-       * This is mighty weird but it's a workaround for JUnit's limitations in passing the
-       * cause of an ignored test and at the same time mark a test as ignored in certain IDEs
-       * (Eclipse).
-       */
-      notifier.fireTestStarted(c.description);
-      if (containerRunner != RunnerContainer.IDEA) {
-        notifier.fireTestIgnored(c.description);
-      }
-      notifier.fireTestAssumptionFailed(new Failure(c.description, new InternalAssumptionViolatedException(reasonIgnored)));
-      notifier.fireTestFinished(c.description);
-      return true;
-    }
-    
-    return false;
+  private boolean isTestFiltered(GroupEvaluator ev, TestCandidate c) {
+    return ev.getIgnoreReason(c.method, suiteClass) != null;
   }
 
   /**
