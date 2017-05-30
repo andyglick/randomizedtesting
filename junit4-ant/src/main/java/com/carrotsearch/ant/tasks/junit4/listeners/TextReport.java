@@ -43,6 +43,7 @@ import com.carrotsearch.ant.tasks.junit4.events.aggregated.PartialOutputEvent;
 import com.carrotsearch.ant.tasks.junit4.events.aggregated.TestStatus;
 import com.carrotsearch.ant.tasks.junit4.events.mirrors.FailureMirror;
 import com.carrotsearch.randomizedtesting.WriterOutputStream;
+import com.carrotsearch.randomizedtesting.annotations.SuppressForbidden;
 import com.google.common.base.Charsets;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Strings;
@@ -269,7 +270,7 @@ public class TextReport implements AggregatedEventListener {
    */
   public void setShowOutput(String mode) {
     try {
-      this.outputMode = OutputMode.valueOf(mode.toUpperCase());
+      this.outputMode = OutputMode.valueOf(mode.toUpperCase(Locale.ROOT));
     } catch (IllegalArgumentException e) {
       throw new IllegalArgumentException("showOutput accepts any of: "
           + Arrays.toString(OutputMode.values()) + ", value is not valid: " + mode);
@@ -323,6 +324,7 @@ public class TextReport implements AggregatedEventListener {
    * Initialization by container task {@link JUnit4}.
    */
   @Override
+  @SuppressForbidden("legitimate sysstreams.")
   public void setOuter(JUnit4 task) {
     this.seed = task.getSeed();
 
@@ -568,7 +570,7 @@ public class TextReport implements AggregatedEventListener {
 
     final StringBuilder b = new StringBuilder();
     final int totalErrors = this.totalErrors.addAndGet(e.isSuccessful() ? 0 : 1);
-    b.append(String.format(Locale.ENGLISH, "%sCompleted [%d/%d%s]%s in %.2fs, ",
+    b.append(String.format(Locale.ROOT, "%sCompleted [%d/%d%s]%s in %.2fs, ",
         shortTimestamp(e.getStartTimestamp() + e.getExecutionTime()),
         suitesCompleted,
         totalSuites,
@@ -610,7 +612,7 @@ public class TextReport implements AggregatedEventListener {
     line.append(Strings.padEnd(statusNames.get(status), 8, ' '));
     line.append(formatDurationInSeconds(timeMillis));
     if (forkedJvmCount > 1) {
-      line.append(String.format(Locale.ENGLISH, jvmIdFormat, result.getSlave().id));
+      line.append(String.format(Locale.ROOT, jvmIdFormat, result.getSlave().id));
     }
     line.append(" | ");
 
@@ -639,11 +641,11 @@ public class TextReport implements AggregatedEventListener {
         for (FailureMirror fm : failures) {
           count++;
             if (fm.isAssumptionViolation()) {
-                pos.write(String.format(Locale.ENGLISH, 
+                pos.write(String.format(Locale.ROOT, 
                     "Assumption #%d: %s",
                     count, MoreObjects.firstNonNull(fm.getMessage(), "(no message)")));
             } else {
-                pos.write(String.format(Locale.ENGLISH, 
+                pos.write(String.format(Locale.ROOT, 
                     "Throwable #%d: %s",
                     count,
                     showStackTraces ? filterStackTrace(fm.getTrace()) : fm.getThrowableString()));

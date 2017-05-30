@@ -24,7 +24,7 @@ public class Test009TimeoutOrNotIdenticalSequence extends WithNestedTestClass {
     @Repeat(iterations = 2, useConstantSeed = false)
     public void testNoTimeout() {
       assumeRunningNested();
-      seeds.add(randomAsciiOfLength(20));
+      seeds.add(randomAsciiLettersOfLength(20));
     }
   }
   
@@ -56,7 +56,7 @@ public class Test009TimeoutOrNotIdenticalSequence extends WithNestedTestClass {
     List<String> previous = null;
     for (Class<?> c : new Class<?> [] {Nested1.class, Nested2.class, Nested3.class}) {
       seeds.clear();
-      Assertions.assertThat(runClasses(c).wasSuccessful()).isTrue();
+      Assertions.assertThat(runTests(c).wasSuccessful()).isTrue();
 
       if (previous != null) {
         Assertions.assertThat(seeds).as("Class " + c.getSimpleName()).isEqualTo(previous);

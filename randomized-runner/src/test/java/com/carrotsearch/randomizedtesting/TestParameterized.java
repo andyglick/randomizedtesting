@@ -1,19 +1,19 @@
 package com.carrotsearch.randomizedtesting;
 
+import static org.junit.Assert.*;
+
 import java.util.Arrays;
 import java.util.Collections;
 
+import org.assertj.core.api.Assertions;
 import org.junit.Assert;
 import org.junit.Test;
-import org.junit.runner.Result;
 
 import com.carrotsearch.randomizedtesting.annotations.Name;
 import com.carrotsearch.randomizedtesting.annotations.ParametersFactory;
 import com.carrotsearch.randomizedtesting.annotations.Repeat;
 import com.carrotsearch.randomizedtesting.annotations.Seed;
 import com.carrotsearch.randomizedtesting.annotations.Seeds;
-
-import static org.junit.Assert.*;
 
 public class TestParameterized extends WithNestedTestClass {
   public static class Nested extends RandomizedTest {
@@ -45,8 +45,7 @@ public class TestParameterized extends WithNestedTestClass {
 
   @Test
   public void testWithRepeatsAndSeeds() {
-    Result result = runClasses(Nested.class);
-    Assert.assertEquals(16, result.getRunCount());
+    checkTestsOutput(16, 0, 0, 0, Nested.class);
   }
 
   public static class Nested2 extends RandomizedTest {
@@ -68,10 +67,11 @@ public class TestParameterized extends WithNestedTestClass {
 
   @Test
   public void testNameAnnotation() {
-    Result result = runClasses(Nested2.class);
-    Assert.assertEquals(1, result.getFailureCount());
-    Assert.assertTrue(result.getFailures().get(0).getDescription().getMethodName().contains("paramName=xyz"));
-    Assert.assertEquals("failing", RandomizedRunner.methodName(result.getFailures().get(0).getDescription()));
+    FullResult r = checkTestsOutput(1, 0, 1, 0, Nested2.class);
+    Assertions.assertThat(r.getFailures()).hasSize(1);
+    Assertions.assertThat(r.getFailures().get(0).getDescription().getMethodName())
+      .contains("paramName=xyz");
+    Assert.assertEquals("failing", RandomizedRunner.methodName(r.getFailures().get(0).getDescription()));
   }
   
   public static class Nested3 extends Nested2 {
@@ -97,14 +97,28 @@ public class TestParameterized extends WithNestedTestClass {
     }
   }
 
+
+  public static class Nested5 extends RandomizedTest {
+    public Nested5() {}
+
+    @Test
+    public void testMe() {}
+    
+    @ParametersFactory
+    public static Iterable<Object[]> parameters() {
+      return Arrays.asList(new Object[] {},
+                           new Integer[] {});
+    }
+  }
+
   @Test
   public void testEmptyParamsList() {
-    Result result = runClasses(Nested3.class);
-    Assert.assertEquals(0, result.getRunCount());
-    Assert.assertEquals(0, result.getIgnoreCount());
-    
-    result = runClasses(Nested4.class);
-    Assert.assertEquals(0, result.getRunCount());
-    Assert.assertEquals(0, result.getIgnoreCount());    
-  }  
+    checkTestsOutput(0, 0, 0, 0, Nested3.class);
+    checkTestsOutput(0, 0, 0, 0, Nested4.class);
+  }
+
+  @Test
+  public void testNonObjectArray() {
+    checkTestsOutput(2, 0, 0, 0, Nested5.class);
+  }
 }

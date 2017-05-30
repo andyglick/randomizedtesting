@@ -5,7 +5,6 @@ import static com.carrotsearch.randomizedtesting.SysGlobals.*;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -13,6 +12,14 @@ import java.io.PrintWriter;
 import java.io.RandomAccessFile;
 import java.io.Serializable;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryNotEmptyException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -52,7 +59,6 @@ import org.apache.tools.ant.types.CommandlineJava;
 import org.apache.tools.ant.types.Environment;
 import org.apache.tools.ant.types.Environment.Variable;
 import org.apache.tools.ant.types.FileSet;
-import org.apache.tools.ant.types.Path;
 import org.apache.tools.ant.types.PropertySet;
 import org.apache.tools.ant.types.Resource;
 import org.apache.tools.ant.types.ResourceCollection;
@@ -86,8 +92,8 @@ import com.carrotsearch.randomizedtesting.RandomizedRunner;
 import com.carrotsearch.randomizedtesting.SeedUtils;
 import com.carrotsearch.randomizedtesting.SysGlobals;
 import com.carrotsearch.randomizedtesting.TeeOutputStream;
+import com.carrotsearch.randomizedtesting.annotations.SuppressForbidden;
 import com.carrotsearch.randomizedtesting.generators.RandomPicks;
-import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Strings;
@@ -98,7 +104,6 @@ import com.google.common.io.CharStreams;
 import com.google.common.io.Closeables;
 import com.google.common.io.Closer;
 import com.google.common.io.FileWriteMode;
-import com.google.common.io.Files;
 
 /**
  * An ANT task to run JUnit4 tests. Differences (benefits?) compared to ANT's default JUnit task:
@@ -169,6 +174,9 @@ public class JUnit4 extends Task {
   
   /** Default value of {@link #setIsolateWorkingDirectories(boolean)}. */
   public static final boolean DEFAULT_ISOLATE_WORKING_DIRECTORIES = true;
+
+  /** Default valkue of {@link #setOnNonEmptyWorkDirectory}. */
+  public static final NonEmptyWorkDirectoryAction DEFAULT_NON_EMPTY_WORKDIR_ACTION = NonEmptyWorkDirectoryAction.FAIL;
 
   /** Default value of {@link #setDynamicAssignmentRatio(float)} */
   public static final float DEFAULT_DYNAMIC_ASSIGNMENT_RATIO = .25f;
@@ -241,7 +249,7 @@ public class JUnit4 extends Task {
   /**
    * Directory to invoke forked VMs in.
    */
-  private File dir;
+  private Path dir;
 
   /**
    * Test names.
@@ -267,7 +275,7 @@ public class JUnit4 extends Task {
    * A folder to store temporary files in. Defaults to {@link #dir} or  
    * the project's basedir.
    */
-  private File tempDir;
+  private Path tempDir;
 
   /**
    * Listeners listening on the event bus.
@@ -298,7 +306,7 @@ public class JUnit4 extends Task {
   /**
    * A list of temporary files to leave or remove if build passes.
    */
-  private List<File> temporaryFiles = Collections.synchronizedList(new ArrayList<File>());
+  private List<Path> temporaryFiles = Collections.synchronizedList(new ArrayList<Path>());
 
   /**
    * @see #setSeed(String)
@@ -311,11 +319,16 @@ public class JUnit4 extends Task {
   private boolean isolateWorkingDirectories = DEFAULT_ISOLATE_WORKING_DIRECTORIES;
 
   /**
+   * @see #setIsolateWorkingDirectories(boolean)
+   */
+  private NonEmptyWorkDirectoryAction nonEmptyWorkDirAction = DEFAULT_NON_EMPTY_WORKDIR_ACTION;
+
+  /**
    * Multiple path resolution in {@link CommandlineJava#getCommandline()} is very slow
    * so we construct and canonicalize paths.
    */
-  private Path classpath;
-  private Path bootclasspath;
+  private org.apache.tools.ant.types.Path classpath;
+  private org.apache.tools.ant.types.Path bootclasspath;
 
   /**
    * @see #setDynamicAssignmentRatio(float)
@@ -362,7 +375,7 @@ public class JUnit4 extends Task {
   public void setJvmOutputAction(String jvmOutputActions) {
     EnumSet<JvmOutputAction> actions = EnumSet.noneOf(JvmOutputAction.class); 
     for (String s : jvmOutputActions.split("[\\,\\ ]+")) {
-      s = s.trim().toUpperCase(Locale.ENGLISH);
+      s = s.trim().toUpperCase(Locale.ROOT);
       actions.add(JvmOutputAction.valueOf(s));
     }
     this.jvmOutputAction = actions;
@@ -507,8 +520,8 @@ public class JUnit4 extends Task {
     super.setProject(project);
 
     this.resources.setProject(project);
-    this.classpath = new Path(getProject());
-    this.bootclasspath = new Path(getProject());
+    this.classpath = new org.apache.tools.ant.types.Path(getProject());
+    this.bootclasspath = new org.apache.tools.ant.types.Path(getProject());
   }
   
   /**
@@ -556,16 +569,16 @@ public class JUnit4 extends Task {
    * The directory to invoke forked VMs in.
    */
   public void setDir(File dir) {
-    this.dir = dir;
+    this.dir = dir.toPath();
   }
 
   /**
    * The directory to store temporary files in.
    */
   public void setTempDir(File tempDir) {
-    this.tempDir = tempDir;
+    this.tempDir = tempDir.toPath();
   }
-  
+
   /**
    * What to do when no tests were executed (all tests were ignored)?
    * @see NoTestsAction
@@ -668,6 +681,20 @@ public class JUnit4 extends Task {
   }
 
   /**
+   * Determines the behavior on detecting non-empty existing current working
+   * directory for a forked JVM, before the tests commence. This action is performed
+   * only if work directory isolation is set to true (see {@link #setIsolateWorkingDirectories(boolean)}).
+   */
+  public void setOnNonEmptyWorkDirectory(String value) {
+    try {
+      this.nonEmptyWorkDirAction = NonEmptyWorkDirectoryAction.valueOf(value.toUpperCase(Locale.ROOT));
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException("OnNonEmptyWorkDirectory accepts any of: "
+          + Arrays.toString(NonEmptyWorkDirectoryAction.values()) + ", value is not valid: " + value);
+    }
+  }
+
+  /**
    * Adds an environment variable; used when forking.
    */
   public void addEnv(ExtendedVariable var) {
@@ -720,7 +747,7 @@ public class JUnit4 extends Task {
    * 
    * @return reference to the classpath in the embedded java command line
    */
-  public Path createClasspath() {
+  public org.apache.tools.ant.types.Path createClasspath() {
     return classpath.createPath();
   }
 
@@ -729,7 +756,7 @@ public class JUnit4 extends Task {
    * 
    * @return reference to the bootclasspath in the embedded java command line
    */
-  public Path createBootclasspath() {
+  public org.apache.tools.ant.types.Path createBootclasspath() {
     return bootclasspath.createPath();
   }
   
@@ -912,7 +939,7 @@ public class JUnit4 extends Task {
 
       
       if (jvmCount > 1 && uniqueSuiteNames && testCollection.hasReplicatedSuites()) {
-        throw new BuildException(String.format(Locale.ENGLISH,
+        throw new BuildException(String.format(Locale.ROOT,
             "There are test suites that request JVM replication and the number of forked JVMs %d is larger than 1. Run on a single JVM.",
             jvmCount));
       }
@@ -940,7 +967,7 @@ public class JUnit4 extends Task {
             Node root = new FilterExpressionParser().parse(v.getValue());
             log("Parsed test filtering expression: " + root.toExpression(), Project.MSG_INFO);
           } catch (Exception e) {
-            log("Could not parse filtering expression: " + v.getValue(), Project.MSG_WARN);
+            log("Could not parse filtering expression: " + v.getValue(), e, Project.MSG_WARN);
           }
         }
       }
@@ -982,7 +1009,7 @@ public class JUnit4 extends Task {
 
       for (ForkedJvmInfo si : slaveInfos) {
         if (si.start > 0 && si.end > 0) {
-          log(String.format(Locale.ENGLISH, "JVM J%d: %8.2f .. %8.2f = %8.2fs",
+          log(String.format(Locale.ROOT, "JVM J%d: %8.2f .. %8.2f = %8.2fs",
               si.id,
               (si.start - start) / 1000.0f,
               (si.end - start) / 1000.0f,
@@ -1029,13 +1056,17 @@ public class JUnit4 extends Task {
     }
 
     if (!leaveTemporary) {
-      for (File f : temporaryFiles) {
+      for (Path f : temporaryFiles) {
         try {
           if (f != null) {
-            java.nio.file.Files.delete(f.toPath());
+            try {
+              Files.delete(f);
+            } catch (DirectoryNotEmptyException e) {
+              throw new DirectoryNotEmptyException("Remaining files: " + listFiles(f));
+            }
           }
         } catch (IOException e) {
-          log("Could not remove temporary path: " + f.getAbsolutePath() + " (" + e.getMessage() + ")", Project.MSG_WARN);
+          log("Could not remove temporary path: " + f.toAbsolutePath() + " (" + e + ")", e, Project.MSG_WARN);
         }
       }
     }
@@ -1071,23 +1102,36 @@ public class JUnit4 extends Task {
     }
   }
 
+  private static List<String> listFiles(Path f) throws IOException {
+    List<String> remainingFiles = new ArrayList<String>();
+    try (DirectoryStream<Path> s = Files.newDirectoryStream(f)) {
+      for (Path p : s) {
+        remainingFiles.add(p.toString());
+      }
+      Collections.sort(remainingFiles);
+    }
+    return remainingFiles;
+  }
+
   /**
    * Validate arguments.
    */
-  private void validateArguments() {
-    File tempDir = getTempDir();
+  private void validateArguments() throws BuildException {
+    Path tempDir = getTempDir();
 
     if (tempDir == null) {
       throw new BuildException("Temporary directory cannot be null.");
     }
     
-    if (tempDir.exists()) {
-      if (!tempDir.isDirectory()) {
-        throw new BuildException("Temporary directory is not a folder: " + tempDir.getAbsolutePath());
+    if (Files.exists(tempDir)) {
+      if (!Files.isDirectory(tempDir)) {
+        throw new BuildException("Temporary directory is not a folder: " + tempDir.toAbsolutePath());
       }
     } else {
-      if (!tempDir.mkdirs()) {
-        throw new BuildException("Failed to create temporary directory: " + tempDir.getAbsolutePath());
+      try {
+        Files.createDirectories(tempDir);
+      } catch (IOException e) {
+        throw new BuildException("Failed to create temporary folder: " + tempDir, e);
       }
     }
   }
@@ -1147,7 +1191,7 @@ public class JUnit4 extends Task {
           throw new RuntimeException("Balancer must return suite name as a key: " + e.suiteName);
         }
 
-        log(String.format(Locale.ENGLISH,
+        log(String.format(Locale.ROOT,
             "Assignment hint: J%-2d (cost %5d) %s (by %s)",
             e.slaveId,
             e.estimatedCost,
@@ -1272,8 +1316,8 @@ public class JUnit4 extends Task {
   /**
    * Resolve all files from a given path and simplify its definition.
    */
-  private Path resolveFiles(Path path) {
-    Path cloned = new Path(getProject());
+  private org.apache.tools.ant.types.Path resolveFiles(org.apache.tools.ant.types.Path path) {
+    org.apache.tools.ant.types.Path cloned = new org.apache.tools.ant.types.Path(getProject());
     for (String location : path.list()) {
       cloned.createPathElement().setLocation(new File(location));
     }
@@ -1326,21 +1370,16 @@ public class JUnit4 extends Task {
   {
     final String uniqueSeed = new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.ROOT).format(new Date());
 
-    final File classNamesFile = tempFile(uniqueSeed,
-        "junit4-J" + slave.id, ".suites", getTempDir());
+    final Path classNamesFile = tempFile(uniqueSeed, "junit4-J" + slave.id, ".suites", getTempDir());
     temporaryFiles.add(classNamesFile);
 
-    final File classNamesDynamic = tempFile(uniqueSeed,
-        "junit4-J" + slave.id, ".dynamic-suites", getTempDir());
-
-    final File streamsBufferFile = tempFile(uniqueSeed,
-        "junit4-J" + slave.id, ".spill", getTempDir());
+    final Path classNamesDynamic = tempFile(uniqueSeed, "junit4-J" + slave.id, ".dynamic-suites", getTempDir());
+    final Path streamsBufferFile = tempFile(uniqueSeed, "junit4-J" + slave.id, ".spill", getTempDir());
 
     // Dump all test class names to a temporary file.
     String testClassPerLine = Joiner.on("\n").join(slave.testSuites);
     log("Test class names:\n" + testClassPerLine, Project.MSG_VERBOSE);
-
-    Files.write(testClassPerLine, classNamesFile, Charsets.UTF_8);
+    Files.write(classNamesFile, testClassPerLine.getBytes(StandardCharsets.UTF_8));
 
     // Prepare command line for java execution.
     CommandlineJava commandline;
@@ -1352,17 +1391,16 @@ public class JUnit4 extends Task {
     }
 
     // Set up full output files.
-    File sysoutFile = tempFile(uniqueSeed,
+    Path sysoutFile = tempFile(uniqueSeed,
         "junit4-J" + slave.id, ".sysout", getTempDir());
-    File syserrFile = tempFile(uniqueSeed,
+    Path syserrFile = tempFile(uniqueSeed,
         "junit4-J" + slave.id, ".syserr", getTempDir());
 
     // Set up communication channel.
-    File eventFile = tempFile(uniqueSeed,
-        "junit4-J" + slave.id, ".events", getTempDir());
+    Path eventFile = tempFile(uniqueSeed, "junit4-J" + slave.id, ".events", getTempDir());
     temporaryFiles.add(eventFile);
     commandline.createArgument().setValue(SlaveMain.OPTION_EVENTSFILE);
-    commandline.createArgument().setFile(eventFile);
+    commandline.createArgument().setFile(eventFile.toFile());
     
     if (sysouts) {
       commandline.createArgument().setValue(SlaveMain.OPTION_SYSOUTS);
@@ -1375,7 +1413,7 @@ public class JUnit4 extends Task {
     InputStream eventStream = new TailInputStream(eventFile);
 
     // Set up input suites file.
-    commandline.createArgument().setValue("@" + classNamesFile.getAbsolutePath());
+    commandline.createArgument().setValue("@" + classNamesFile.toAbsolutePath().normalize());
 
     // May or may not use dynamic load balancing, but if == 0 then we're for sure
     // not using it.
@@ -1390,7 +1428,7 @@ public class JUnit4 extends Task {
 
     final AtomicReference<Charset> clientCharset = new AtomicReference<Charset>();
     final AtomicBoolean clientWithLimitedCharset = new AtomicBoolean(); 
-    final PrintWriter w = new PrintWriter(Files.newWriter(classNamesDynamic, Charsets.UTF_8));
+    final PrintWriter w = new PrintWriter(Files.newBufferedWriter(classNamesDynamic, StandardCharsets.UTF_8));
     eventBus.register(new Object() {
       @Subscribe
       public void onIdleSlave(final SlaveIdle idleSlave) {
@@ -1437,9 +1475,9 @@ public class JUnit4 extends Task {
     closer.register(eventStream);
     closer.register(w);
     try {
-      OutputStream sysout = closer.register(new BufferedOutputStream(new FileOutputStream(sysoutFile)));
-      OutputStream syserr = closer.register(new BufferedOutputStream(new FileOutputStream(syserrFile)));
-      RandomAccessFile streamsBuffer = closer.register(new RandomAccessFile(streamsBufferFile, "rw"));
+      OutputStream sysout = closer.register(new BufferedOutputStream(Files.newOutputStream(sysoutFile)));
+      OutputStream syserr = closer.register(new BufferedOutputStream(Files.newOutputStream(syserrFile)));
+      RandomAccessFile streamsBuffer = closer.register(new RandomAccessFile(streamsBufferFile.toFile(), "rw"));
 
       Execute execute = forkProcess(slave, eventBus, commandline, eventStream, sysout, syserr, streamsBuffer);
       log("Forked JVM J" + slave.id + " finished with exit code: " + execute.getExitValue(), Project.MSG_DEBUG);
@@ -1462,7 +1500,7 @@ public class JUnit4 extends Task {
               message.append("Forked process returned with error code: ").append(exitStatus).append(".");
             }
 
-            if (sysoutFile.length() > 0 || syserrFile.length() > 0) {
+            if (Files.size(sysoutFile) > 0 || Files.size(syserrFile) > 0) {
               if (exitStatus != SlaveMain.ERR_OOM) {
                 message.append(" Very likely a JVM crash. ");
               }
@@ -1470,11 +1508,11 @@ public class JUnit4 extends Task {
               if (jvmOutputAction.contains(JvmOutputAction.PIPE)) {
                 message.append(" Process output piped in logs above.");
               } else if (!jvmOutputAction.contains(JvmOutputAction.IGNORE)) {
-                if (sysoutFile.length() > 0) {
-                  message.append(" See process stdout at: " + sysoutFile.getAbsolutePath());
+                if (Files.size(sysoutFile) > 0) {
+                  message.append(" See process stdout at: " + sysoutFile.toAbsolutePath());
                 }
-                if (syserrFile.length() > 0) {
-                  message.append(" See process stderr at: " + syserrFile.getAbsolutePath());
+                if (Files.size(syserrFile) > 0) {
+                  message.append(" See process stderr at: " + syserrFile.toAbsolutePath());
                 }
               }
             }
@@ -1487,9 +1525,10 @@ public class JUnit4 extends Task {
       try {
         closer.close();
       } finally {
-        Files.asByteSource(classNamesDynamic).copyTo(Files.asByteSink(classNamesFile, FileWriteMode.APPEND));
-        classNamesDynamic.delete();
-        streamsBufferFile.delete();
+        com.google.common.io.Files.asByteSource(classNamesDynamic.toFile())
+          .copyTo(com.google.common.io.Files.asByteSink(classNamesFile.toFile(), FileWriteMode.APPEND));
+        Files.delete(classNamesDynamic);
+        Files.delete(streamsBufferFile);
 
         // Check sysout/syserr lengths.
         checkJvmOutput(aggregatedBus, sysoutFile, slave, "stdout");
@@ -1508,53 +1547,45 @@ public class JUnit4 extends Task {
     }
   }
 
-  private void checkJvmOutput(EventBus aggregatedBus, File file, ForkedJvmInfo slave, String fileName) {
-    if (file.length() > 0) {
-      String message = "JVM J" + slave.id + ": " + fileName + " was not empty, see: " + file;
+  @SuppressForbidden("legitimate sysout.")
+  private void checkJvmOutput(EventBus aggregatedBus, Path file, ForkedJvmInfo forked, String fileName) throws IOException {
+    if (Files.size(file) > 0) {
+      String message = "JVM J" + forked.id + ": " + fileName + " was not empty, see: " + file;
       if (jvmOutputAction.contains(JvmOutputAction.WARN)) {
         log(message, Project.MSG_WARN);
       }
       if (jvmOutputAction.contains(JvmOutputAction.LISTENERS)) {
-        aggregatedBus.post(new JvmOutputEvent(slave, file));
+        aggregatedBus.post(new JvmOutputEvent(forked, file.toFile()));
       }
       if (jvmOutputAction.contains(JvmOutputAction.PIPE)) {
-        log(">>> JVM J" + slave.id + ": " + fileName + " (verbatim) ----", Project.MSG_INFO);
+        log(">>> JVM J" + forked.id + ": " + fileName + " (verbatim) ----", Project.MSG_INFO);
         try {
           // If file > 10 mb, stream directly. Otherwise use the logger.
-          if (file.length() < 10 * (1024 * 1024)) {
+          if (Files.size(file) < 10 * (1024 * 1024)) {
             // Append to logger.
-            log(Files.toString(file, slave.getCharset()), Project.MSG_INFO);
+            log(new String(Files.readAllBytes(file), forked.getCharset()), Project.MSG_INFO);
           } else {
             // Stream directly.
-            CharStreams.copy(Files.newReader(file, slave.getCharset()), System.out);
+            CharStreams.copy(Files.newBufferedReader(file, forked.getCharset()), System.out);
           }
         } catch (IOException e) {
           log("Couldn't pipe file " + file + ": " + e.toString(), Project.MSG_INFO);
         }
-        log("<<< JVM J" + slave.id + ": EOF ----", Project.MSG_INFO);
+        log("<<< JVM J" + forked.id + ": EOF ----", Project.MSG_INFO);
       }
       if (jvmOutputAction.contains(JvmOutputAction.IGNORE)) {
-        file.delete();
+        Files.delete(file);
       }
       if (jvmOutputAction.contains(JvmOutputAction.FAIL)) {
         throw new BuildException(message);
       }
       return;
     }
-    file.delete();
+    Files.delete(file);
   }
 
-  private File tempFile(String uniqueSeed, String base, String suffix, File tempDir) throws IOException {
-    int retry = 0;
-    File finalName;
-    do {
-      if (retry > 0) {
-        finalName = new File(tempDir, base + "-" + uniqueSeed + "_retry" + retry + suffix);
-      } else {
-        finalName = new File(tempDir, base + "-" + uniqueSeed + suffix);
-      }
-    } while (!finalName.createNewFile() && retry++ < 5);
-    return finalName;
+  private Path tempFile(String uniqueSeed, String base, String suffix, Path tempDir) throws IOException {
+    return Files.createTempFile(tempDir, base + "-" + uniqueSeed, suffix);
   }
 
   /**
@@ -1581,6 +1612,7 @@ public class JUnit4 extends Task {
   /**
    * Execute a slave process. Pump events to the given event bus.
    */
+  @SuppressForbidden("legitimate sysstreams.")
   private Execute forkProcess(ForkedJvmInfo slaveInfo, EventBus eventBus, 
       CommandlineJava commandline, 
       InputStream eventStream, OutputStream sysout, OutputStream syserr, RandomAccessFile streamsBuffer) {
@@ -1592,11 +1624,11 @@ public class JUnit4 extends Task {
 
       // Add certain properties to allow identification of the forked JVM from within
       // the subprocess. This can be used for policy files etc.
-      final File cwd = getWorkingDirectory(slaveInfo);
+      final Path cwd = getWorkingDirectory(slaveInfo);
 
       Variable v = new Variable();
       v.setKey(CHILDVM_SYSPROP_CWD);
-      v.setFile(cwd.getAbsoluteFile());
+      v.setFile(cwd.toAbsolutePath().normalize().toFile());
       commandline.addSysproperty(v);
 
       v = new Variable();
@@ -1611,14 +1643,14 @@ public class JUnit4 extends Task {
 
       // Emit command line before -stdin to avoid confusion.
       slaveInfo.slaveCommandLine = escapeAndJoin(commandline.getCommandline());
-      log("Forked child JVM at '" + cwd.getAbsolutePath() + 
+      log("Forked child JVM at '" + cwd.toAbsolutePath().normalize() + 
           "', command (may need escape sequences for your shell):\n" + 
           slaveInfo.slaveCommandLine, Project.MSG_VERBOSE);
 
       final Execute execute = new Execute();
       execute.setCommandline(commandline.getCommandline());
       execute.setVMLauncher(true);
-      execute.setWorkingDirectory(cwd);
+      execute.setWorkingDirectory(cwd.toFile());
       execute.setStreamHandler(streamHandler);
       execute.setNewenvironment(newEnvironment);
       if (env.getVariables() != null)
@@ -1627,33 +1659,92 @@ public class JUnit4 extends Task {
       execute.execute();
       return execute;
     } catch (IOException e) {
-      throw new BuildException("Could not execute slave process. Run ant with -verbose to get" +
+      throw new BuildException("Could not start the child process. Run ant with -verbose to get" +
       		" the execution details.", e);
     }
   }
 
-  private File getWorkingDirectory(ForkedJvmInfo slaveInfo) {
-    File baseDir = (dir == null ? getProject().getBaseDir() : dir);
-    final File slaveDir;
+  private Path getWorkingDirectory(ForkedJvmInfo jvmInfo) throws IOException {
+    Path baseDir = (dir == null ? getProject().getBaseDir().toPath() : dir);
+    final Path forkedDir;
     if (isolateWorkingDirectories) {
-      slaveDir = new File(baseDir, "J" + slaveInfo.id);
-      slaveDir.mkdirs();
-      temporaryFiles.add(slaveDir);
+      forkedDir = baseDir.resolve("J" + jvmInfo.id);
+      if (Files.isDirectory(forkedDir)) {
+        // If there are any files inside the forkedDir, issue a warning.
+        List<String> existingFiles = listFiles(forkedDir);
+        if (!existingFiles.isEmpty()) {
+          switch (nonEmptyWorkDirAction) {
+            case IGNORE:
+              log("Cwd of a forked JVM already exists and is not empty: " 
+                  + existingFiles + " (ignoring).", Project.MSG_DEBUG);
+              break;
+  
+            case WIPE:
+              log("Cwd of a forked JVM already exists and is not empty, trying to wipe: " 
+                  + existingFiles, Project.MSG_DEBUG);
+              try {
+                Files.walkFileTree(forkedDir, new SimpleFileVisitor<Path>() {
+                  @Override
+                  public FileVisitResult postVisitDirectory(Path dir, IOException iterationError) throws IOException {
+                    if (iterationError != null) {
+                      throw iterationError;
+                    }
+                    if (forkedDir != dir) {
+                      Files.delete(dir);
+                    }
+                    return FileVisitResult.CONTINUE;
+                  }
+            
+                  @Override
+                  public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    Files.delete(file);
+                    return FileVisitResult.CONTINUE;
+                  }
+
+                  @Override
+                  public FileVisitResult visitFileFailed(Path file, IOException e) throws IOException {
+                    throw e;
+                  }
+                });
+              } catch (IOException e) {
+                throw new BuildException("An exception occurred while trying to wipe the working directory: "
+                    + forkedDir, e);
+              }
+
+              existingFiles = listFiles(forkedDir);
+              if (existingFiles.isEmpty()) {
+                break;
+              } else {
+                // Intentional fall-through.
+              }
+
+            case FAIL:
+              throw new BuildException("Cwd of a forked JVM already exists and is not empty "
+                  + "and setOnNonEmptyWorkDirectory=" + nonEmptyWorkDirAction + ": " + existingFiles);
+
+            default:
+              throw new RuntimeException("Unreachable.");
+          }
+        }
+      } else {
+        Files.createDirectories(forkedDir);
+        temporaryFiles.add(forkedDir);
+      }
     } else {
-      slaveDir = baseDir;
+      forkedDir = baseDir;
     }
-    return slaveDir;
+    return forkedDir;
   }
 
   /**
    * Resolve temporary folder.
    */
-  private File getTempDir() {
+  private Path getTempDir() {
     if (this.tempDir == null) {
       if (this.dir != null) {
         this.tempDir = dir;
       } else {
-        this.tempDir = getProject().getBaseDir();
+        this.tempDir = getProject().getBaseDir().toPath();
       }
     }
     return tempDir;
@@ -1733,7 +1824,7 @@ public class JUnit4 extends Task {
         }
       } catch (IOException e) {
         throw new BuildException("Could not read or parse as Java class: "
-            + r.getName() + ", " + r.getLocation());
+            + r.getName() + ", " + r.getLocation(), e);
       }
     }
 
@@ -1764,8 +1855,8 @@ public class JUnit4 extends Task {
    * forked JVM into an isolated bundle and either create it on-demand (in temp.
    * files location?) or locate it in classpath somehow (in a portable way).
    */
-  private Path addSlaveClasspath() {
-    Path path = new Path(getProject());
+  private org.apache.tools.ant.types.Path addSlaveClasspath() {
+    org.apache.tools.ant.types.Path path = new org.apache.tools.ant.types.Path(getProject());
 
     String [] REQUIRED_SLAVE_CLASSES = {
         SlaveMain.class.getName(),
@@ -1780,8 +1871,7 @@ public class JUnit4 extends Task {
       if (f != null) {
         path.createPath().setLocation(f);
       } else {
-        throw new BuildException("Could not locate classpath for resource: "
-            + resource);
+        throw new BuildException("Could not locate classpath for resource: " + resource);
       }
     }
     return path;

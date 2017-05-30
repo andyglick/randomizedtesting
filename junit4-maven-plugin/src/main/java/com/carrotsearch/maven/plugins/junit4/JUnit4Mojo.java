@@ -154,13 +154,21 @@ public class JUnit4Mojo extends AbstractMojo {
   private boolean haltOnFailure = JUnit4.DEFAULT_HALT_ON_FAILURE;
 
   /**
-   * If set to <code>true</code> each slave JVM gets a separate working directory
-   * under whatever is set in <code>dir</code>. The directory naming for each slave
-   * follows: "S<i>num</i>", where <i>num</i> is slave's number. Directories are created
-   * automatically and removed unless <code>leaveTemporary</code> is set to
-   * <code>true</code>.
+   * If set to <code>true</code> each forked JVM gets a separate working directory
+   * under whatever is set in <code>dir</code>. The directory naming for each JVM
+   * follows: "J<i>num</i>", where <i>num</i> is the forked JVM's number. 
+   * Directories are created automatically and removed unless <code>leaveTemporary</code> 
+   * is set to <code>true</code>.
    */
+  @Parameter(defaultValue = "true")
   private boolean isolateWorkingDirectories = JUnit4.DEFAULT_ISOLATE_WORKING_DIRECTORIES;
+
+  /**
+   * Sets the action performed when current work directory for a forked JVM is not empty
+   * and <code>isolateWorkingDirectories</code> is set to true.
+   */
+  @Parameter(defaultValue = "fail")
+  private String onNonEmptyWorkDirectory = JUnit4.DEFAULT_NON_EMPTY_WORKDIR_ACTION.name();
 
   /**
    * If set to true, any sysout and syserr calls will be written to original
@@ -276,9 +284,8 @@ public class JUnit4Mojo extends AbstractMojo {
    * This parameter adds a listener emitting surefire-compatible XMLs if no other listeners
    * are added. If there are any configured listeners, this parameter is omitted (you can
    * add a maven-compatible listener manually).
-   * 
-   * @parameter default-value="${project.build.directory}/surefire-reports"
    */
+  @Parameter(defaultValue = "${project.build.directory}/surefire-reports")
   private File surefireReportsDirectory;
 
   /**
@@ -350,8 +357,6 @@ public class JUnit4Mojo extends AbstractMojo {
   /**
    * Set this to "true" to skip running tests, but still compile them. Its use
    * is NOT RECOMMENDED, but quite convenient on occasion.
-   * 
-   * @parameter default-value="false" property="skipTests"
    */
   @Parameter(
       property = "skipTests",
@@ -594,7 +599,8 @@ public class JUnit4Mojo extends AbstractMojo {
     if (newEnvironment != null) junit4.addAttribute("newEnvironment", newEnvironment.toString());
     if (ifNoTests != null) junit4.addAttribute("ifNoTests", ifNoTests);
     if (statsPropertyPrefix != null) junit4.addAttribute("statsPropertyPrefix", statsPropertyPrefix);
-      
+    if (onNonEmptyWorkDirectory != null) junit4.addAttribute("onNonEmptyWorkDirectory", onNonEmptyWorkDirectory);
+
     junit4.addAttribute("shuffleOnSlave", Boolean.toString(shuffleOnSlave));
     junit4.addAttribute("printSummary", Boolean.toString(printSummary));
     junit4.addAttribute("isolateWorkingDirectories", Boolean.toString(isolateWorkingDirectories));

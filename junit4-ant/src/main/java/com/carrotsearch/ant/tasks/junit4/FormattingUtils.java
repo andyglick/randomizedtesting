@@ -21,11 +21,11 @@ public final class FormattingUtils {
   }
 
   public static String formatTime(long timestamp) {
-    return new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ENGLISH).format(new Date(timestamp));
+    return new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT).format(new Date(timestamp));
   }
 
   public static String formatTimestamp(long ts) {
-    return new SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(new Date(ts));
+    return new SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT).format(new Date(ts));
   }
 
   public static String formatDurationInSeconds(long timeMillis) {
@@ -37,7 +37,7 @@ public final class FormattingUtils {
     } else {
       precision = 2;
     }
-    return String.format(Locale.ENGLISH, "%4." + precision + "fs", timeMillis / 1000.0);
+    return String.format(Locale.ROOT, "%4." + precision + "fs", timeMillis / 1000.0);
   }
 
   public static String formatDescription(Description description) {

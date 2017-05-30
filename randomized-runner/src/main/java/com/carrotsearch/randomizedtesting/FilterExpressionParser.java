@@ -119,7 +119,7 @@ public final class FilterExpressionParser {
     Node led(Node left) {
       if (!nodes.hasNext()) {
         throw new SyntaxException(this, "Missing argument for " 
-            + toString().toUpperCase(Locale.ENGLISH) + ".");
+            + toString().toUpperCase(Locale.ROOT) + ".");
       }
 
       args = new Node [] {left, expression(lbp)};
@@ -297,7 +297,7 @@ public final class FilterExpressionParser {
       } else if (value.startsWith("@")) {
         t = new TestGroupNode();
       } else {
-        throw new SyntaxException(null, String.format(Locale.ENGLISH,
+        throw new SyntaxException(null, String.format(Locale.ROOT,
             "Unrecognized token '%s'. At: \"%s\"",
             value == null ? "<null>" : value,
             new InputRange(rule, s, len)));

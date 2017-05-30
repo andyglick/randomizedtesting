@@ -19,17 +19,19 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 import java.util.TimeZone;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Assume;
 import org.junit.runner.RunWith;
 
 import com.carrotsearch.randomizedtesting.annotations.Listeners;
 import com.carrotsearch.randomizedtesting.annotations.Nightly;
+import com.carrotsearch.randomizedtesting.annotations.SuppressForbidden;
+import com.carrotsearch.randomizedtesting.generators.BiasedNumbers;
 import com.carrotsearch.randomizedtesting.generators.RandomBytes;
-import com.carrotsearch.randomizedtesting.generators.RandomInts;
+import com.carrotsearch.randomizedtesting.generators.RandomNumbers;
 import com.carrotsearch.randomizedtesting.generators.RandomPicks;
 import com.carrotsearch.randomizedtesting.generators.RandomStrings;
-import com.carrotsearch.randomizedtesting.generators.StringGenerator;
 
 /**
  * Common scaffolding for subclassing randomized tests.
@@ -107,6 +109,24 @@ public class RandomizedTest {
   public static double  randomGaussian() { return getRandom().nextGaussian(); }
 
   //
+  // Biased value pickers. 
+  //
+  
+  /**
+   * A biased "evil" random float between min and max (inclusive).
+   * 
+   * @see BiasedNumbers#randomFloatBetween(Random, float, float)
+   */
+  public static float  biasedFloatBetween(float min, float max) { return BiasedNumbers.randomFloatBetween(getRandom(), min, max); }
+
+  /**
+   * A biased "evil" random double between min and max (inclusive).
+   * 
+   * @see BiasedNumbers#randomDoubleBetween(Random, double, double)
+   */
+  public static double biasedDoubleBetween(double min, double max) { return BiasedNumbers.randomDoubleBetween(getRandom(), min, max); }
+
+  //
   // Delegates to RandomBytes.
   //
 
@@ -132,14 +152,21 @@ public class RandomizedTest {
   }  
 
   //
-  // Delegates to RandomInts.
+  // Delegates to RandomNumbers.
   //
 
   /** 
    * A random integer from 0..max (inclusive). 
    */
-  public static int randomInt(int max) { 
-    return RandomInts.randomInt(getRandom(), max); 
+  public static int randomInt(int max) {
+    return RandomNumbers.randomIntBetween(getRandom(), 0, max);
+  }
+
+  /** 
+   * A random long from 0..max (inclusive). 
+   */
+  public static long randomLong(long max) {
+    return RandomNumbers.randomLongBetween(getRandom(), 0, max);
   }
 
   /** 
@@ -148,7 +175,7 @@ public class RandomizedTest {
    * @see #scaledRandomIntBetween(int, int)
    */
   public static int randomIntBetween(int min, int max) {
-    return RandomInts.randomIntBetween(getRandom(), min, max);
+    return RandomNumbers.randomIntBetween(getRandom(), min, max);
   }
 
   /** 
@@ -158,6 +185,20 @@ public class RandomizedTest {
    */
   public static int between(int min, int max) {
     return randomIntBetween(min, max);
+  }
+
+  /** 
+   * A random long from <code>min</code> to <code>max</code> (inclusive).
+   */
+  public static long randomLongBetween(long min, long max) {
+    return RandomNumbers.randomLongBetween(getRandom(), min, max);
+  }
+
+  /** 
+   * An alias for {@link #randomLongBetween}. 
+   */
+  public static long between(long min, long max) {
+    return randomLongBetween(min, max);
   }
 
   /** 
@@ -219,6 +260,14 @@ public class RandomizedTest {
   public static <T> T randomFrom(List<T> list) {
     return RandomPicks.randomFrom(getRandom(), list);
   }
+
+  public static byte randomFrom(byte [] array)     { return RandomPicks.randomFrom(getRandom(), array); }
+  public static short randomFrom(short [] array)   { return RandomPicks.randomFrom(getRandom(), array); }
+  public static int randomFrom(int [] array)       { return RandomPicks.randomFrom(getRandom(), array); }
+  public static char randomFrom(char [] array)     { return RandomPicks.randomFrom(getRandom(), array); }
+  public static float randomFrom(float [] array)   { return RandomPicks.randomFrom(getRandom(), array); }
+  public static long randomFrom(long [] array)     { return RandomPicks.randomFrom(getRandom(), array); }
+  public static double randomFrom(double [] array) { return RandomPicks.randomFrom(getRandom(), array); }
 
   //
   // "multiplied" or scaled value pickers. These will be affected by global multiplier.
@@ -285,11 +334,8 @@ public class RandomizedTest {
    */
   private static Path globalTempDir;
   
-  /**
-   * Subfolders under {@link #globalTempDir} are created synchronously, so we don't need
-   * to mangle filenames.
-   */
-  private static int tempSubFileNameCount;
+  /** */
+  private static AtomicInteger tempSubFileNameCount = new AtomicInteger(0);
 
   /**
    * Global temporary directory created for the duration of this class's lifespan. If
@@ -317,13 +363,14 @@ public class RandomizedTest {
         Files.createDirectories(tmpFolder);
         globalTempDir = tmpFolder;
         Runtime.getRuntime().addShutdownHook(new Thread() {
+            @SuppressForbidden("Legitimate use of syserr.")
             public void run() {
               try {
                 rmDir(globalTempDir);
               } catch (IOException e) {
                 // Not much else to do but to log and quit.
-                System.err.println("Could not completely delete temporary folder: " +
-                    globalTempDir.toAbsolutePath() + ". Cause: ");
+                System.err.println("Could not delete temporary folder: " 
+                    + globalTempDir.toAbsolutePath() + ". Cause: ");
                 e.printStackTrace(System.err);
               }
             }
@@ -398,8 +445,8 @@ public class RandomizedTest {
   }
 
   /** Next temporary filename. */
-  private static String nextTempName() {
-    return String.format("%04d has-space", tempSubFileNameCount++);
+  protected static String nextTempName() {
+    return String.format(Locale.ROOT, "%04d has-space", tempSubFileNameCount.getAndIncrement());
   }
 
   /**
@@ -495,59 +542,107 @@ public class RandomizedTest {
   // Characters and strings. Delegates to RandomStrings and that in turn to StringGenerators.
   //
 
-  /** @see StringGenerator#ofCodeUnitsLength(Random, int, int) */
+  /** 
+   * @deprecated Use {@link #randomAsciiLettersOfLengthBetween} instead.  
+   */
+  @Deprecated
   public static String randomAsciiOfLengthBetween(int minCodeUnits, int maxCodeUnits) {
-    return RandomStrings.randomAsciiOfLengthBetween(getRandom(), minCodeUnits,
-        maxCodeUnits);
+    return randomAsciiLettersOfLengthBetween(minCodeUnits, maxCodeUnits);
   }
-  
-  /** @see StringGenerator#ofCodeUnitsLength(Random, int, int) */
+
+  /** 
+   * @deprecated Use {@link #randomAsciiLettersOfLength} instead.  
+   */
+  @Deprecated
   public static String randomAsciiOfLength(int codeUnits) {
-    return RandomStrings.randomAsciiOfLength(getRandom(), codeUnits);
+    return randomAsciiLettersOfLength(codeUnits);
   }
-  
-  /** @see StringGenerator#ofCodeUnitsLength(Random, int, int) */
+
+  /**
+   * @see RandomStrings#randomAsciiLettersOfLengthBetween
+   */
+  public static String randomAsciiLettersOfLengthBetween(int minLetters, int maxLetters) {
+    return RandomStrings.randomAsciiLettersOfLengthBetween(getRandom(), minLetters, maxLetters);
+  }
+
+  /**
+   * @see RandomStrings#randomAsciiLettersOfLength
+   */
+  public static String randomAsciiLettersOfLength(int codeUnits) {
+    return RandomStrings.randomAsciiLettersOfLength(getRandom(), codeUnits);
+  }
+
+  /**
+   * @see RandomStrings#randomAsciiAlphanumOfLengthBetween
+   */
+  public static String randomAsciiAlphanumOfLengthBetween(int minCodeUnits, int maxCodeUnits) {
+    return RandomStrings.randomAsciiAlphanumOfLengthBetween(getRandom(), minCodeUnits, maxCodeUnits);
+  }
+
+  /**
+   * @see RandomStrings#randomAsciiAlphanumOfLength
+   */
+  public static String randomAsciiAlphanumOfLength(int codeUnits) {
+    return RandomStrings.randomAsciiAlphanumOfLength(getRandom(), codeUnits);
+  }
+
+  /**
+   * @see RandomStrings#randomUnicodeOfLengthBetween
+   */
   public static String randomUnicodeOfLengthBetween(int minCodeUnits, int maxCodeUnits) {
     return RandomStrings.randomUnicodeOfLengthBetween(getRandom(),
         minCodeUnits, maxCodeUnits);
   }
-  
-  /** @see StringGenerator#ofCodeUnitsLength(Random, int, int) */
+
+  /**
+   * @see RandomStrings#randomUnicodeOfLength
+   */
   public static String randomUnicodeOfLength(int codeUnits) {
     return RandomStrings.randomUnicodeOfLength(getRandom(), codeUnits);
   }
   
-  /** @see StringGenerator#ofCodePointsLength(Random, int, int) */
+  /**
+   * @see RandomStrings#randomUnicodeOfCodepointLengthBetween
+   */
   public static String randomUnicodeOfCodepointLengthBetween(int minCodePoints, int maxCodePoints) {
     return RandomStrings.randomUnicodeOfCodepointLengthBetween(getRandom(),
         minCodePoints, maxCodePoints);
   }
   
-  /** @see StringGenerator#ofCodePointsLength(Random, int, int) */
+  /**
+   * @see RandomStrings#randomUnicodeOfCodepointLength
+   */
   public static String randomUnicodeOfCodepointLength(int codePoints) {
-    return RandomStrings
-        .randomUnicodeOfCodepointLength(getRandom(), codePoints);
+    return RandomStrings.randomUnicodeOfCodepointLength(getRandom(), codePoints);
   }
   
-  /** @see StringGenerator#ofCodeUnitsLength(Random, int, int) */
+  /**
+   * @see RandomStrings#randomRealisticUnicodeOfLengthBetween
+   */
   public static String randomRealisticUnicodeOfLengthBetween(int minCodeUnits, int maxCodeUnits) {
     return RandomStrings.randomRealisticUnicodeOfLengthBetween(getRandom(),
         minCodeUnits, maxCodeUnits);
   }
   
-  /** @see StringGenerator#ofCodeUnitsLength(Random, int, int) */
+  /**
+   * @see RandomStrings#randomRealisticUnicodeOfLength
+   */
   public static String randomRealisticUnicodeOfLength(int codeUnits) {
     return RandomStrings.randomRealisticUnicodeOfLength(getRandom(), codeUnits);
   }
   
-  /** @see StringGenerator#ofCodePointsLength(Random, int, int) */
+  /**
+   * @see RandomStrings#randomRealisticUnicodeOfCodepointLengthBetween
+   */
   public static String randomRealisticUnicodeOfCodepointLengthBetween(
       int minCodePoints, int maxCodePoints) {
     return RandomStrings.randomRealisticUnicodeOfCodepointLengthBetween(
         getRandom(), minCodePoints, maxCodePoints);
   }
   
-  /** @see StringGenerator#ofCodePointsLength(Random, int, int) */
+  /**
+   * @see RandomStrings#randomRealisticUnicodeOfCodepointLength
+   */
   public static String randomRealisticUnicodeOfCodepointLength(int codePoints) {
     return RandomStrings.randomRealisticUnicodeOfCodepointLength(getRandom(),
         codePoints);

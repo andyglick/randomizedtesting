@@ -69,6 +69,7 @@ import com.carrotsearch.randomizedtesting.annotations.Seeds;
 import com.carrotsearch.randomizedtesting.annotations.TestCaseInstanceProvider;
 import com.carrotsearch.randomizedtesting.annotations.TestCaseOrdering;
 import com.carrotsearch.randomizedtesting.annotations.TestMethodProviders;
+import com.carrotsearch.randomizedtesting.annotations.TestContextRandomSupplier;
 import com.carrotsearch.randomizedtesting.annotations.ThreadLeakAction;
 import com.carrotsearch.randomizedtesting.annotations.ThreadLeakFilters;
 import com.carrotsearch.randomizedtesting.annotations.ThreadLeakGroup;
@@ -291,6 +292,11 @@ public final class RandomizedRunner extends Runner implements Filterable {
   private ClassModel classModel;
 
   /**
+   * Random class implementation supplier.
+   */
+  private final RandomSupplier randomSupplier;
+  
+  /**
    * Methods cache.
    */
   private Map<Class<? extends Annotation>,List<Method>> shuffledMethodsCache = new HashMap<Class<? extends Annotation>,List<Method>>();
@@ -344,6 +350,8 @@ public final class RandomizedRunner extends Runner implements Filterable {
       }
       SeedDecorator[] decArray = decorators.toArray(new SeedDecorator [decorators.size()]);
 
+      randomSupplier = determineRandomSupplier(testClass);
+
       final long randomSeed = MurmurHash3.hash(sequencer.getAndIncrement() + System.nanoTime());
       final String globalSeed = emptyToNull(System.getProperty(SYSPROP_RANDOM_SEED()));
       final long initialSeed;
@@ -355,7 +363,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
         }
 
         if (seedChain.length > 1) {
-          testCaseRandomnessOverride = new Randomness(seedChain[1]);
+          testCaseRandomnessOverride = new Randomness(seedChain[1], randomSupplier);
         }
 
         initialSeed = seedChain[0];
@@ -364,7 +372,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
       } else {
         initialSeed = randomSeed;
       }
-      runnerRandomness = new Randomness(initialSeed, decArray);
+      runnerRandomness = new Randomness(initialSeed, randomSupplier, decArray);
     }
 
     // Iterations property is primary wrt to annotations, so we leave an "undefined" value as null.
@@ -387,6 +395,20 @@ public final class RandomizedRunner extends Runner implements Filterable {
       this.groupEvaluator = new GroupEvaluator(testCandidates);
     } catch (Throwable t) {
       throw new InitializationError(t);
+    }
+  }
+
+  private RandomSupplier determineRandomSupplier(Class<?> testClass) {
+    List<TestContextRandomSupplier> randomImpl = getAnnotationsFromClassHierarchy(testClass, TestContextRandomSupplier.class);
+    if (randomImpl.size() == 0) {
+      return RandomSupplier.DEFAULT;
+    } else {
+      Class<? extends RandomSupplier> clazz = randomImpl.get(randomImpl.size() - 1).value();
+      try {
+        return clazz.newInstance();
+      } catch (InstantiationException | IllegalAccessException e) {
+        throw new IllegalArgumentException("Could not instantiate random supplier of class: " + clazz, e);
+      }
     }
   }
 
@@ -632,62 +654,42 @@ public final class RandomizedRunner extends Runner implements Filterable {
         }
       }
 
-      /*
-       * TODO: the logic here should be changed:
-       * - if it's an @Ignored test or it is ignored due to a disabled test group:
-       *     remove from the set
-       *     markAsIgnored(t);
-       * - else, if it's a test that is ignored due to filtering expression:
-       *     remove from the set
-       *     markAsIgnored(t) if running under IDE (only)
-       *     
-       * - there is no need to check filtering rules again in runTestsStatement
-       */
-
-      // Filter out test candidates to see if there's anything left. If not,
-      // don't bother running class hooks.
-      final List<TestCandidate> filtered = getFilteredTestCandidates();
-      for (Iterator<TestCandidate> i = filtered.iterator(); i.hasNext();) {
-        TestCandidate c = i.next();
-        if (isTestIgnored(c)) {
-          i.remove();
-          markAsIgnored(notifier, c);
-        } else if (isTestFiltered(groupEvaluator, c)) {
-          // If there is an explicit tests.filter expression, we remove the tests
-          // entirely from the run (so that they don't obscure the view of actual
-          // tests that were executed). For IDEs we need to make an exception, however,
-          // because IDEs expect those tests to be reported back.
-          i.remove();
-          if (containerRunner == RunnerContainer.ECLIPSE ||
-              containerRunner == RunnerContainer.IDEA) {
-            markAsIgnored(notifier, c);
-          }
-        }
-      }
-
-      if (!filtered.isEmpty()) {
-        ThreadLeakControl threadLeakControl = new ThreadLeakControl(notifier, this);
-        Statement s = runTestsStatement(threadLeakControl.notifier(), filtered, threadLeakControl);
-        s = withClassBefores(s);
-        s = withClassAfters(s);
-        s = withClassRules(s);
-        s = withCloseContextResources(s, LifecycleScope.SUITE);
-        s = threadLeakControl.forSuite(s, suiteDescription);
-        try {
-          s.evaluate();
-        } catch (Throwable t) {
-          t = augmentStackTrace(t, runnerRandomness);
-          if (t instanceof AssumptionViolatedException) {
-            // Fire assumption failure before method ignores. (GH-103).
-            notifier.fireTestAssumptionFailed(new Failure(suiteDescription, t));
-
-            // Class level assumptions cause all tests to be ignored.
-            // see Rants#RANT_3
-            for (final TestCandidate c : filtered) {
-              notifier.fireTestIgnored(c.description);
+      // Filter out test candidates to see if there's anything left.
+      // If not, don't bother running class hooks.
+      final List<TestCandidate> tests = getFilteredTestCandidates(notifier);
+      if (!tests.isEmpty()) {
+        Map<TestCandidate, Boolean> ignored = determineIgnoredTests(tests);
+        if (ignored.size() == tests.size()) {
+          // All tests ignored, ignore class hooks but report all the ignored tests.
+          for (TestCandidate c : tests) {
+            if (ignored.get(c)) {
+              reportAsIgnored(notifier, groupEvaluator, c);
             }
-          } else {
-            fireTestFailure(notifier, suiteDescription, t);
+          }
+        } else {
+          ThreadLeakControl threadLeakControl = new ThreadLeakControl(notifier, this);
+          Statement s = runTestsStatement(threadLeakControl.notifier(), tests, ignored, threadLeakControl);
+          s = withClassBefores(s);
+          s = withClassAfters(s);
+          s = withClassRules(s);
+          s = withCloseContextResources(s, LifecycleScope.SUITE);
+          s = threadLeakControl.forSuite(s, suiteDescription);
+          try {
+            s.evaluate();
+          } catch (Throwable t) {
+            t = augmentStackTrace(t, runnerRandomness);
+            if (t instanceof AssumptionViolatedException) {
+              // Fire assumption failure before method ignores. (GH-103).
+              notifier.fireTestAssumptionFailed(new Failure(suiteDescription, t));
+  
+              // Class level assumptions cause all tests to be ignored.
+              // see Rants#RANT_3
+              for (final TestCandidate c : tests) {
+                notifier.fireTestIgnored(c.description);
+              }
+            } else {
+              fireTestFailure(notifier, suiteDescription, t);
+            }
           }
         }
       }
@@ -708,6 +710,35 @@ public final class RandomizedRunner extends Runner implements Filterable {
     notifier.removeListener(accounting);
     unsubscribeListeners(notifier);
     context.popAndDestroy();    
+  }
+
+  /**
+   * Determine the set of ignored tests.
+   */
+  private Map<TestCandidate, Boolean> determineIgnoredTests(List<TestCandidate> tests) {
+    Map<TestCandidate, Boolean> ignoredTests = new IdentityHashMap<>();
+    for (TestCandidate c : tests) {
+      // If it's an @Ignore-marked test, always report it as ignored, remove it from execution.
+      if (hasIgnoreAnnotation(c) ) {
+        ignoredTests.put(c, true);
+      }
+
+      // Otherwise, check if the test should be ignored due to test group annotations or filtering
+      // expression
+      if (isTestFiltered(groupEvaluator, c)) {
+        // If we're running under an IDE, report the test back as ignored. Otherwise
+        // check if filtering expression is being used. If not, report the test as ignored
+        // (test group exclusion at work).
+        if (containerRunner == RunnerContainer.ECLIPSE ||
+            containerRunner == RunnerContainer.IDEA ||
+            !groupEvaluator.hasFilteringExpression()) {
+          ignoredTests.put(c, true);
+        } else {
+          ignoredTests.put(c, false);
+        }
+      }
+    }
+    return ignoredTests;
   }
 
   /**
@@ -740,21 +771,16 @@ public final class RandomizedRunner extends Runner implements Filterable {
 
   private Statement runTestsStatement(
       final RunNotifier notifier, 
-      final List<TestCandidate> filtered, 
+      final List<TestCandidate> tests, 
+      final Map<TestCandidate, Boolean> ignored, 
       final ThreadLeakControl threadLeakControl) {
     return new Statement() {
       public void evaluate() throws Throwable {
-        for (final TestCandidate c : filtered) {
+        for (final TestCandidate c : tests) {
           if (threadLeakControl.isTimedOut()) {
             break;
           }
-
-          if (isTestIgnored(c) ||
-              isTestFiltered(groupEvaluator, c)) {
-            markAsIgnored(notifier, c);
-            continue;
-          }
-
+          
           // Setup test thread's name so that stack dumps produce seed, test method, etc.
           final String testThreadName = "TEST-" + Classes.simpleName(suiteClass) +
               "." + c.method.getName() + "-seed#" + SeedUtils.formatSeedChain(runnerRandomness);
@@ -764,9 +790,17 @@ public final class RandomizedRunner extends Runner implements Filterable {
           final RandomizedContext current = RandomizedContext.current();
           try {
             Thread.currentThread().setName(testThreadName);
-            current.push(new Randomness(c.seed));
+            current.push(new Randomness(c.seed, randomSupplier));
             current.setTargetMethod(c.method);
-            runSingleTest(notifier, c, threadLeakControl);
+            
+            if (ignored.containsKey(c)) {
+              // Ignore the test, but report only if requested.
+              if (ignored.get(c)) {
+                reportAsIgnored(notifier, groupEvaluator, c);
+              }
+            } else {
+              runSingleTest(notifier, c, threadLeakControl);
+            }
           } finally {
             Thread.currentThread().setName(restoreName);
             current.setTargetMethod(null);
@@ -777,13 +811,12 @@ public final class RandomizedRunner extends Runner implements Filterable {
     };
   }
 
-  void markAsIgnored(RunNotifier notifier, TestCandidate c) {
+  void reportAsIgnored(RunNotifier notifier, GroupEvaluator ge, TestCandidate c) {
     if (c.method.getAnnotation(Ignore.class) != null) {
       notifier.fireTestIgnored(c.description);
       return;
     }
 
-    GroupEvaluator ge = RandomizedContext.current().getGroupEvaluator();
     String ignoreReason = ge.getIgnoreReason(c.method, suiteClass);
     if (ignoreReason != null) {
       notifier.fireTestStarted(c.description);
@@ -1104,7 +1137,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
   /**
    * Apply filtering to candidates.
    */
-  private List<TestCandidate> getFilteredTestCandidates() {
+  private List<TestCandidate> getFilteredTestCandidates(RunNotifier notifier) {
     // Apply suite filters.
     if (!suiteFilters.isEmpty()) {
       for (Filter f : suiteFilters) {
@@ -1115,24 +1148,22 @@ public final class RandomizedRunner extends Runner implements Filterable {
     }
 
     // Apply method filters.
-    if (testFilters.isEmpty()) {
-      return testCandidates;
-    }
-
     final List<TestCandidate> filtered = new ArrayList<TestCandidate>(testCandidates);
-    for (Iterator<TestCandidate> i = filtered.iterator(); i.hasNext(); ) {
-      final TestCandidate candidate = i.next();
-      for (Filter f : testFilters) {
-        // Inquire for both full description (possibly with parameters and seed)
-        // and simplified description (just method name).
-        if (f.shouldRun(candidate.description) ||
-            f.shouldRun(Description.createTestDescription(
-                suiteClass, candidate.method.getName()))) {
-          continue;
+    if (!testFilters.isEmpty()) {
+      for (Iterator<TestCandidate> i = filtered.iterator(); i.hasNext(); ) {
+        final TestCandidate candidate = i.next();
+        for (Filter f : testFilters) {
+          // Inquire for both full description (possibly with parameters and seed)
+          // and simplified description (just method name).
+          if (f.shouldRun(candidate.description) ||
+              f.shouldRun(Description.createTestDescription(
+                  suiteClass, candidate.method.getName()))) {
+            continue;
+          }
+  
+          i.remove();
+          break;
         }
-
-        i.remove();
-        break;
       }
     }
 
@@ -1151,7 +1182,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
   /** 
    * Returns true if we should ignore this test candidate.
    */
-  private boolean isTestIgnored(TestCandidate c) {
+  private boolean hasIgnoreAnnotation(TestCandidate c) {
     return c.method.getAnnotation(Ignore.class) != null;
   }
 
@@ -1362,8 +1393,8 @@ public final class RandomizedRunner extends Runner implements Filterable {
         final long thisSeed = (fixedSeed ? testSeed : testSeed ^ MurmurHash3.hash((long) i));
 
         // Format constructor arguments.
-        Object [] args = Arrays.copyOf(testCase.params, testCase.params.length + 1);
-        args[args.length - 1] = SeedUtils.formatSeedChain(runnerRandomness, new Randomness(thisSeed));
+        Object [] args = Arrays.copyOf(testCase.params, testCase.params.length + 1, Object[].class);
+        args[args.length - 1] = SeedUtils.formatSeedChain(runnerRandomness, new Randomness(thisSeed, randomSupplier));
         String formattedArguments = String.format(Locale.ROOT, argFormattingTemplate, args);
 
         String key = method.getName() + "::" + formattedArguments;
@@ -1378,7 +1409,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
         }
 
         Description description = Description.createSuiteDescription(
-            String.format("%s%s(%s)", method.getName(), formattedArguments, suiteClass.getName()),
+            String.format(Locale.ROOT, "%s%s(%s)", method.getName(), formattedArguments, suiteClass.getName()),
             method.getAnnotations());
 
         // Create an instance and delay instantiation exception if possible.

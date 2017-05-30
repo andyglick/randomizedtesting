@@ -45,6 +45,7 @@ import org.junit.runners.model.Statement;
 
 import com.carrotsearch.randomizedtesting.RandomizedRunner.TestCandidate;
 import com.carrotsearch.randomizedtesting.RandomizedRunner.UncaughtException;
+import com.carrotsearch.randomizedtesting.annotations.SuppressForbidden;
 import com.carrotsearch.randomizedtesting.annotations.ThreadLeakAction;
 import com.carrotsearch.randomizedtesting.annotations.ThreadLeakAction.Action;
 import com.carrotsearch.randomizedtesting.annotations.ThreadLeakFilters;
@@ -72,9 +73,9 @@ class ThreadLeakControl {
   private static class DefaultAnnotationValues {}
 
   /**
-   * Shared logger.
+   * Shared LOGGER.
    */
-  private final static Logger logger = RandomizedRunner.logger;
+  private final static Logger LOGGER = RandomizedRunner.logger;
 
   /** 
    * How many attempts to interrupt and then kill a runaway thread before giving up?
@@ -406,12 +407,13 @@ class ThreadLeakControl {
           if (timedOut) {
             // Mark as timed out so that we don't do any checks in any currently running test
             suiteTimedOut.set(true);
+
             // Flush streams so that we don't get warning outputs before sysout buffers.
-            System.out.flush();
-            System.err.flush();
+            flushStreams();
 
             // Emit a warning.
-            logger.warning("Suite execution timed out: " + suiteDescription + formatThreadStacksFull());
+            LOGGER.warning("Suite execution timed out: " + suiteDescription + formatThreadStacksFull());
+
             // mark subNotifier as dead (no longer passing events).
             subNotifier.pleaseStop();
           }
@@ -440,6 +442,12 @@ class ThreadLeakControl {
 
         MultipleFailureException.assertEmpty(errors);
       }
+
+      @SuppressForbidden("Legitimate use of syserr.")
+      private void flushStreams() {
+        System.out.flush();
+        System.err.flush();
+      }
     };
   }
 
@@ -464,7 +472,7 @@ class ThreadLeakControl {
         }
 
         if (timedOut) {
-          logger.warning("Test execution timed out: " + c.description + formatThreadStacksFull());
+          LOGGER.warning("Test execution timed out: " + c.description + formatThreadStacksFull());
         }
 
         if (timedOut) {
@@ -566,7 +574,7 @@ class ThreadLeakControl {
     if (lingerTime > 0 && !threads.isEmpty()) {
       final long deadline = System.currentTimeMillis() + lingerTime;
       try {
-        logger.warning("Will linger awaiting termination of " + threads.size() + " leaked thread(s).");
+        LOGGER.warning("Will linger awaiting termination of " + threads.size() + " leaked thread(s).");
         do {
           // Check every few hundred milliseconds until deadline occurs. We want to break out
           // sooner than the maximum lingerTime but there is no explicit even that
@@ -579,7 +587,7 @@ class ThreadLeakControl {
             break;
         } while (true);
       } catch (InterruptedException e) {
-        logger.warning("Lingering interrupted.");
+        LOGGER.warning("Lingering interrupted.");
       }
     }
 
@@ -610,7 +618,7 @@ class ThreadLeakControl {
     actions.addAll(Arrays.asList(firstAnnotated(ThreadLeakAction.class, annotationChain).value()));
 
     if (actions.contains(Action.WARN)) {
-      logger.severe(message.toString());
+      LOGGER.severe(message.toString());
     }
 
     Set<Thread> zombies = Collections.emptySet();
@@ -640,9 +648,9 @@ class ThreadLeakControl {
   private String formatThreadStacks(Map<Thread,StackTraceElement[]> threads) {
     StringBuilder message = new StringBuilder();
     int cnt = 1;
-    final Formatter f = new Formatter(message);
+    final Formatter f = new Formatter(message, Locale.ROOT);
     for (Map.Entry<Thread,StackTraceElement[]> e : threads.entrySet()) {
-      f.format(Locale.ENGLISH, "\n  %2d) %s", cnt++, Threads.threadName(e.getKey())).flush();
+      f.format(Locale.ROOT, "\n  %2d) %s", cnt++, Threads.threadName(e.getKey())).flush();
       if (e.getValue().length == 0) {
         message.append("\n        at (empty stack)");
       } else {
@@ -657,10 +665,10 @@ class ThreadLeakControl {
   /** Collect thread names. */
   private String threadNames(Collection<Thread> threads) {
     StringBuilder b = new StringBuilder();
-    final Formatter f = new Formatter(b);
+    final Formatter f = new Formatter(b, Locale.ROOT);
     int cnt = 1;
     for (Thread t : threads) {
-      f.format(Locale.ENGLISH, "\n  %2d) %s", cnt++, Threads.threadName(t));
+      f.format(Locale.ROOT, "\n  %2d) %s", cnt++, Threads.threadName(t));
     }
     return b.toString();
   }
@@ -737,7 +745,7 @@ class ThreadLeakControl {
    * Attempt to interrupt all threads in the given set.
    */
   private Set<Thread> tryToInterruptAll(List<Throwable> errors, Set<Thread> threads) {
-    logger.info("Starting to interrupt leaked threads:" + threadNames(threads));
+    LOGGER.info("Starting to interrupt leaked threads:" + threadNames(threads));
 
     // stop reporting uncaught exceptions.
     runner.handler.stopReporting();
@@ -785,10 +793,10 @@ class ThreadLeakControl {
       }
   
       if (zombies.isEmpty()) {
-        logger.info("All leaked threads terminated.");
+        LOGGER.info("All leaked threads terminated.");
       } else {
         String message = "There are still zombie threads that couldn't be terminated:" + formatThreadStacks(zombies);
-        logger.severe(message);
+        LOGGER.severe(message);
         errors.add(RandomizedRunner.augmentStackTrace(
             emptyStack(new ThreadLeakError(message.toString()))));
       }

@@ -11,7 +11,7 @@
 
   <groupId>com.carrotsearch.randomizedtesting</groupId>
   <artifactId>randomizedtesting-parent</artifactId>
-  <version>2.4.0-SNAPSHOT</version>
+  <version>2.5.2-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>RandomizedTesting Parent POM</name>
@@ -31,7 +31,7 @@
       <organization>Carrot Search s.c.</organization>
       <organizationUrl>http://www.carrotsearch.com</organizationUrl>
     </developer>
-  </developers>  
+  </developers>
 
   <licenses>
     <license>
@@ -40,7 +40,14 @@
       <distribution>repo</distribution>
     </license>
   </licenses>
-  
+
+  <distributionManagement>
+    <site>
+      <id>site</id>
+      <url>scm:git:git@github.com:randomizedtesting/randomizedtesting.git</url>
+    </site>
+  </distributionManagement>
+
   <scm>
     <connection>scm:git:git@github.com:randomizedtesting/randomizedtesting.git</connection>
     <developerConnection>scm:git:git@github.com:randomizedtesting/randomizedtesting.git</developerConnection>
@@ -59,12 +66,15 @@
     <gpg.passphrase></gpg.passphrase>
 
     <version.junit>4.10</version.junit>
-    <version.maven-antrun-plugin>1.8</version.maven-antrun-plugin>
-    <version.ant>1.9.4</version.ant>
+    <version.ant>1.9.7</version.ant>
     <version.assertj>2.2.0</version.assertj>
 
+    <version.maven-antrun-plugin>1.8</version.maven-antrun-plugin>
     <version.maven-enforcer-plugin>1.4.1</version.maven-enforcer-plugin>
-    <version.maven-clean-plugin>2.6.1</version.maven-clean-plugin>
+    <version.maven-clean-plugin>3.0.0</version.maven-clean-plugin>
+    <version.maven-javadoc-plugin>2.10.4</version.maven-javadoc-plugin>
+    <version.maven-surefire-plugin>2.19.1</version.maven-surefire-plugin>
+    <version.forbiddenapis>2.2</version.forbiddenapis> 
   </properties>
 
   <modules>
@@ -100,7 +110,7 @@
       <dependency>
         <groupId>com.google.guava</groupId>
         <artifactId>guava</artifactId>
-        <version>19.0-rc3</version>
+        <version>19.0</version>
         <exclusions>
           <exclusion>
             <artifactId>jsr305</artifactId>
@@ -124,7 +134,7 @@
       <dependency>
         <groupId>org.ow2.asm</groupId>
         <artifactId>asm</artifactId>
-        <version>5.0.4</version>
+        <version>5.1</version>
       </dependency>
 
       <dependency>
@@ -150,13 +160,34 @@
         <artifactId>assertj-core</artifactId>
         <version>${version.assertj}</version>
         <scope>test</scope>
-      </dependency> 
+      </dependency>
     </dependencies>
   </dependencyManagement>
 
   <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-site-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>attach-descriptor</id>
+            <goals>
+              <goal>attach-descriptor</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+
     <pluginManagement>
       <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-site-plugin</artifactId>
+          <version>3.5.1</version>
+        </plugin>
+
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-clean-plugin</artifactId>
@@ -184,26 +215,26 @@
 
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-source-plugin</artifactId>
-          <version>2.4</version>
+          <artifactId>maven-plugin-plugin</artifactId>
+          <version>3.5</version>
         </plugin>
 
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-javadoc-plugin</artifactId>
-          <version>2.10.3</version>
+          <artifactId>maven-source-plugin</artifactId>
+          <version>3.0.1</version>
         </plugin>
 
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-assembly-plugin</artifactId>
-          <version>2.5.5</version>
+          <version>2.6</version>
         </plugin>
 
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-jar-plugin</artifactId>
-          <version>2.6</version>
+          <version>3.0.2</version>
         </plugin>
 
         <plugin>
@@ -215,12 +246,12 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-resources-plugin</artifactId>
-          <version>2.7</version>
+          <version>3.0.1</version>
         </plugin>
 
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-enforcer-plugin</artifactId> 
+          <artifactId>maven-enforcer-plugin</artifactId>
           <version>${version.maven-enforcer-plugin}</version>
         </plugin>
 
@@ -233,7 +264,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
-          <version>3.3</version>
+          <version>3.5.1</version>
         </plugin>
 
         <plugin>
@@ -245,7 +276,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-surefire-plugin</artifactId>
-          <version>2.18.1</version>
+          <version>${version.maven-surefire-plugin}</version>
         </plugin>
 
         <plugin>
@@ -270,8 +301,76 @@
         <plugin>
           <groupId>org.apache.felix</groupId>
           <artifactId>maven-bundle-plugin</artifactId>
-          <version>3.0.0</version>
+          <version>3.2.0</version>
         </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-project-info-reports-plugin</artifactId>
+          <version>2.9</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>${version.maven-javadoc-plugin}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-invoker-plugin</artifactId>
+          <version>2.0.0</version>
+        </plugin>
+        
+        <plugin>
+          <groupId>de.thetaphi</groupId>
+          <artifactId>forbiddenapis</artifactId>
+          <version>${version.forbiddenapis}</version>
+
+          <executions>
+            <execution>
+              <id>check-forbidden-apis</id>
+              <phase>verify</phase>
+              <goals>
+                <goal>check</goal>
+              </goals>
+              <configuration>
+                <targetVersion>1.7</targetVersion>
+                <failOnUnsupportedJava>false</failOnUnsupportedJava>
+                <failOnUnresolvableSignatures>false</failOnUnresolvableSignatures>
+                <failOnMissingClasses>true</failOnMissingClasses>
+                <excludes><!-- Override in subprojects. --></excludes>
+                <suppressAnnotations>
+                  <suppressAnnotation>**.SuppressForbidden</suppressAnnotation>
+                </suppressAnnotations>
+                <bundledSignatures>
+                  <bundledSignature>jdk-unsafe</bundledSignature>
+                  <bundledSignature>jdk-deprecated</bundledSignature>
+                  <bundledSignature>jdk-system-out</bundledSignature>
+                  <bundledSignature>jdk-non-portable</bundledSignature>
+                </bundledSignatures>
+                <signaturesArtifacts>
+                <!-- 
+                  <signaturesArtifact>
+                    <groupId>com.carrotsearch.lingo4g</groupId>
+                    <artifactId>lingo4g-public-forbiddenapis</artifactId> 
+                    <version>${project.version}</version>
+                    <type>jar</type>
+                    <path>com/carrotsearch/lingo4g/forbiddenapis/java-signatures.txt</path>
+                  </signaturesArtifact>
+                  <signaturesArtifact>
+                    <groupId>com.carrotsearch.lingo4g</groupId>
+                    <artifactId>lingo4g-public-forbiddenapis</artifactId> 
+                    <version>${project.version}</version>
+                    <type>jar</type>
+                    <path>com/carrotsearch/lingo4g/forbiddenapis/thirdparty-signatures.txt</path>
+                  </signaturesArtifact>
+                   -->
+                </signaturesArtifacts>
+              </configuration>
+            </execution>
+          </executions>
+        </plugin>        
       </plugins>
     </pluginManagement>
   </build>
@@ -287,7 +386,7 @@
 
     <profile>
       <id>profile.ide.eclipse-m2e</id>
-      
+
       <activation>
         <property>
           <name>m2e.version</name>
@@ -351,9 +450,28 @@
                       <action>
                         <ignore></ignore>
                       </action>
-                    </pluginExecution>                    
+                    </pluginExecution>
                   </pluginExecutions>
                 </lifecycleMappingMetadata>
+              </configuration>
+            </plugin>
+
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-site-plugin</artifactId>
+              <configuration>
+                <chmod>true</chmod>
+                <inputEncoding>UTF-8</inputEncoding>
+                <outputEncoding>UTF-8</outputEncoding>
+              </configuration>
+            </plugin>
+
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-scm-publish-plugin</artifactId>
+              <version>1.1</version>
+              <configuration>
+                <scmBranch>gh-pages</scmBranch>
               </configuration>
             </plugin>
           </plugins>
@@ -385,13 +503,27 @@
                       </condition>
 
                       <fileset id="id:settings" dir="etc/eclipse/settings" />
-                      <copy todir="examples/ant/.settings">              <fileset refid="id:settings" /></copy>
-                      <copy todir="examples/maven/.settings">            <fileset refid="id:settings" /></copy>
-                      <copy todir="examples/security-manager/.settings"> <fileset refid="id:settings" /></copy>
-                      <copy todir="junit4-ant/.settings">                <fileset refid="id:settings" /></copy>
-                      <copy todir="junit4-maven-plugin/.settings">       <fileset refid="id:settings" /></copy>
-                      <copy todir="junit4-maven-plugin-tests/.settings"> <fileset refid="id:settings" /></copy>
-                      <copy todir="randomized-runner/.settings">         <fileset refid="id:settings" /></copy>
+                      <copy todir="examples/ant/.settings">
+                        <fileset refid="id:settings" />
+                      </copy>
+                      <copy todir="examples/maven/.settings">
+                        <fileset refid="id:settings" />
+                      </copy>
+                      <copy todir="examples/security-manager/.settings">
+                        <fileset refid="id:settings" />
+                      </copy>
+                      <copy todir="junit4-ant/.settings">
+                        <fileset refid="id:settings" />
+                      </copy>
+                      <copy todir="junit4-maven-plugin/.settings">
+                        <fileset refid="id:settings" />
+                      </copy>
+                      <copy todir="junit4-maven-plugin-tests/.settings">
+                        <fileset refid="id:settings" />
+                      </copy>
+                      <copy todir="randomized-runner/.settings">
+                        <fileset refid="id:settings" />
+                      </copy>
                     </target>
                   </configuration>
                   <goals>
@@ -417,14 +549,14 @@
 
       <distributionManagement>
         <snapshotRepository>
-            <id>sonatype-nexus-snapshots</id>
-            <name>Sonatype Nexus Snapshots</name>
-            <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+          <id>sonatype-nexus-snapshots</id>
+          <name>Sonatype Nexus Snapshots</name>
+          <url>https://oss.sonatype.org/content/repositories/snapshots</url>
         </snapshotRepository>
         <repository>
-            <id>sonatype-nexus-staging</id>
-            <name>Sonatype Nexus Releases</name>
-            <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+          <id>sonatype-nexus-staging</id>
+          <name>Sonatype Nexus Releases</name>
+          <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
         </repository>
       </distributionManagement>
 
@@ -499,8 +631,8 @@
           </plugin>
         </plugins>
       </build>
-    </profile>    
-    
+    </profile>
+
     <profile>
       <id>doclint-java8-disable</id>
       <activation>
@@ -519,4 +651,48 @@
       </build>
     </profile>
   </profiles>
+
+  <reporting>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-project-info-reports-plugin</artifactId>
+        <configuration>
+          <dependencyLocationsEnabled>false</dependencyLocationsEnabled>
+        </configuration>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>summary</report>
+              <report>index</report>
+              <report>dependencies</report>
+              <report>issue-tracking</report>
+              <report>scm</report>
+              <report>plugins</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <encoding>UTF-8</encoding>
+          <attach>true</attach>
+          <quiet>true</quiet>
+        </configuration>
+        <reportSets>
+          <reportSet>
+            <id>non-aggregate</id>
+            <reports>
+              <report>javadoc</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+      <plugin>
+        <artifactId>maven-plugin-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </reporting>
 </project>

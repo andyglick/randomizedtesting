@@ -22,12 +22,18 @@ public final class AssertingRandom extends Random {
   private volatile boolean valid = true;
 
   /**
+   * Enable paranoid mode when assertions are enabled.
+   */
+  private final static boolean assertionsEnabled = AssertingRandom.class.desiredAssertionStatus(); 
+
+  /**
    * Creates an instance to be used by <code>owner</code> thread and delegating
    * to <code>delegate</code> until {@link #destroy()}ed.
    */
   public AssertingRandom(Thread owner, Random delegate) {
     // Must be here, the only Random constructor. Has side-effects on setSeed, see below.
     super(0);
+
     this.delegate = delegate;
     this.ownerRef = new WeakReference<Thread>(owner);
     this.ownerName = owner.toString();
@@ -95,11 +101,7 @@ public final class AssertingRandom extends Random {
       return;
     }
 
-    throw new RuntimeException(
-        RandomizedRunner.class.getSimpleName() + 
-        " prevents changing the seed of its random generators to assure repeatability" +
-        " of tests. If you need a mutable instance of Random, create a new instance," +
-        " preferably with the initial seed aquired from this Random instance."); 
+    throw noSetSeed();
   }
 
   @Override
@@ -129,6 +131,11 @@ public final class AssertingRandom extends Random {
   
   /* */
   private final void checkValid() {
+    // Fastpath if assertions are disabled.
+    if (!isVerifying()) {
+      return;
+    }
+    
     if (!valid) {
       throw new IllegalStateException("This Random instance has been invalidated and " +
       		"is probably used out of its allowed context (test or suite).");
@@ -150,6 +157,22 @@ public final class AssertingRandom extends Random {
   protected Object clone() throws CloneNotSupportedException {
     checkValid();
     throw new CloneNotSupportedException("Don't clone test Randoms.");
+  }
+
+  /**
+   * @return Return <code>true</code> if this class is verifying sharing and lifecycle assertions.
+   * @see "https://github.com/randomizedtesting/randomizedtesting/issues/234"
+   */
+  public static boolean isVerifying() {
+    return assertionsEnabled;
+  }
+
+  static RuntimeException noSetSeed() {
+    return new RuntimeException(
+        RandomizedRunner.class.getSimpleName() + 
+        " prevents changing the seed of its random generators to assure repeatability" +
+        " of tests. If you need a mutable instance of Random, create a new (local) instance," +
+        " preferably with the initial seed aquired from this Random instance."); 
   }
 
   // Overriding this has side effects on the GC; let's not be paranoid. 

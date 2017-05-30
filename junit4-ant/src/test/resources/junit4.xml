@@ -24,7 +24,7 @@
     </taskdef>
 
     <presetdef name="junit4.preconf">
-        <junit4:junit4 haltonfailure="true" parallelism="1" shuffleOnSlave="true">
+        <junit4:junit4 haltonfailure="true" parallelism="1" shuffleOnSlave="true" onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
 
             <listeners>
@@ -66,7 +66,7 @@
     </target>
 
     <target name="nojunit">
-        <junit4:junit4>
+        <junit4:junit4 onNonEmptyWorkDirectory="wipe">
             <fileset dir="${basedir}">
                 <include name="**/tests/TestSysstreams.class" />
             </fileset>
@@ -74,7 +74,7 @@
     </target>
 
     <target name="oldjunit">
-        <junit4:junit4>
+        <junit4:junit4 onNonEmptyWorkDirectory="wipe">
             <classpath>
                 <path location="." />
                 <fileset dir="${basedir}/../.." includes="lib/junit*.jar" />
@@ -156,6 +156,71 @@
                 </not>
             </condition>
         </fail>
+    </target>
+
+    <target name="onNonEmptyWorkDirectory-fail">
+        <delete dir="empty" failonerror="false" />
+        <touch file="empty/J0/existing-dir/garbage.txt" mkdirs="true" />
+
+        <!-- the default behavior (fail) -->
+        <junit4.preconf dir="empty" onNonEmptyWorkDirectory="fail">
+            <fileset dir="${basedir}">
+                <include name="**/tests/TestDir.class" />
+            </fileset>
+        </junit4.preconf>
+    </target>
+
+    <target name="onNonEmptyWorkDirectory-wipe">
+      <delete dir="empty" failonerror="false" />
+      <touch file="empty/J0/existing-dir/garbage.txt" mkdirs="true" />
+
+      <junit4.preconf dir="empty" leaveTemporary="false" onNonEmptyWorkDirectory="wipe">
+          <fileset dir="${basedir}">
+              <include name="**/tests/TestDir.class" />
+          </fileset>
+      </junit4.preconf>
+
+      <fail message="Expected garbage file to be deleted.">
+          <condition>
+            <available file="empty/J0/existing-dir" type="dir" />
+          </condition>
+      </fail>
+    </target>
+
+    <target name="onNonEmptyWorkDirectory-ignore">
+      <delete dir="empty" failonerror="false" />
+      <touch file="empty/J0/existing-dir/garbage.txt" mkdirs="true" />
+
+      <junit4.preconf dir="empty" leaveTemporary="true" onNonEmptyWorkDirectory="ignore">
+        <fileset dir="${basedir}">
+            <include name="**/tests/TestDir.class" />
+        </fileset>
+      </junit4.preconf>
+
+      <fail message="Expected garbage file to stay untouched.">
+        <condition>
+          <not>
+            <available file="empty/J0/existing-dir/garbage.txt" type="file" />
+          </not>
+        </condition>
+      </fail>
+    </target>
+
+    <target name="onNonEmptyWorkDirectory-tmpDirUnderCwd">
+      <delete dir="empty" failonerror="false" />
+      <mkdir  dir="empty/J0/temp" />
+
+      <junit4.preconf dir="empty"
+                      tempdir="./temp-junit4"
+                      leaveTemporary="true"
+                      onNonEmptyWorkDirectory="wipe">
+
+        <sysproperty key="java.io.tmpdir" value="./temp" /> 
+
+        <fileset dir="${basedir}">
+          <include name="**/tests/TestCreateTmpFile.class" />
+        </fileset>
+      </junit4.preconf>
     </target>
 
     <target name="maxmem">
@@ -248,6 +313,7 @@
         <mkdir dir="ant-xmls" />
 
         <junit4:junit4 
+          onNonEmptyWorkDirectory="wipe"
             haltonfailure="false" 
             uniqueSuiteNames="false"
             parallelism="3">
@@ -283,7 +349,7 @@
       <delete dir="ant-xmls2" failonerror="false" />
       <mkdir dir="ant-xmls2" />
 
-      <junit4:junit4 haltonfailure="false">
+      <junit4:junit4 haltonfailure="false" onNonEmptyWorkDirectory="wipe">
           <classpath refid="tests.classpath" />
 
           <listeners>
@@ -297,7 +363,7 @@
           </fileset>
       </junit4:junit4>
 
-      <junit4:junit4 haltonfailure="false">
+      <junit4:junit4 haltonfailure="false" onNonEmptyWorkDirectory="wipe">
           <classpath refid="tests.classpath" />
           <classpath>
               <fileset dir=".." includes="dependency/randomized*.jar" />
@@ -313,7 +379,7 @@
           </fileset>
       </junit4:junit4>
       
-      <junit4:junit4 haltonfailure="false">
+      <junit4:junit4 haltonfailure="false" onNonEmptyWorkDirectory="wipe">
           <classpath refid="tests.classpath" />
 
           <listeners>
@@ -331,7 +397,7 @@
         <delete dir="json" failonerror="false" />
         <mkdir dir="json" />
 
-        <junit4:junit4 haltonfailure="false">
+        <junit4:junit4 haltonfailure="false" onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
 
             <listeners>
@@ -616,7 +682,7 @@
     </target>
 
     <target name="staticScopeOutput">
-        <junit4:junit4>
+        <junit4:junit4 onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
 
             <fileset dir="${basedir}">
@@ -675,7 +741,7 @@
     </target>
 
     <target name="suiteerror">
-        <junit4:junit4 haltonfailure="false">
+        <junit4:junit4 haltonfailure="false" onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
 
             <listeners>
@@ -689,7 +755,7 @@
     </target>
 
     <target name="reasonForSuiteAssumptionIgnored">
-        <junit4:junit4>
+        <junit4:junit4 onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
             <classpath>
                 <fileset dir=".." includes="dependency/randomized*.jar" />
@@ -706,7 +772,7 @@
     </target>
 
     <target name="reasonForIgnored">
-        <junit4:junit4>
+        <junit4:junit4 onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
             <classpath>
                 <fileset dir=".." includes="dependency/randomized*.jar" />
@@ -723,7 +789,7 @@
     </target>
 
     <target name="reasonForIgnoredByDisabledGroup">
-        <junit4:junit4>
+        <junit4:junit4 onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
             <classpath>
                 <fileset dir=".." includes="dependency/randomized*.jar" />
@@ -742,7 +808,7 @@
     
 
     <target name="jvmverbose">
-        <junit4:junit4 haltonfailure="false">
+        <junit4:junit4 haltonfailure="false" onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
 
             <jvmarg value="-verbose:class" />
@@ -759,7 +825,7 @@
     </target>
 
     <target name="sysouts">
-        <junit4:junit4 sysouts="true" jvmoutputaction="pipe,ignore">
+        <junit4:junit4 sysouts="true" jvmoutputaction="pipe,ignore" onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
 
             <jvmarg value="-verbose:class" />
@@ -787,7 +853,7 @@
     </target>
 
     <target name="listeners">
-        <junit4:junit4 haltonfailure="false">
+        <junit4:junit4 haltonfailure="false" onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
             <classpath>
                 <fileset dir=".." includes="dependency/randomized*.jar" />
@@ -804,7 +870,7 @@
     </target>
   
     <target name="syspropertyset">
-        <junit4:junit4 haltonfailure="false">
+        <junit4:junit4 haltonfailure="false" onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
     
             <fileset dir="${basedir}">
@@ -840,7 +906,7 @@
             <value><!-- Empty for ignored property. --></value>
         </junit4:pickfromlist>
 
-        <junit4:junit4 haltonfailure="false" seed="${tests.seed}">
+        <junit4:junit4 haltonfailure="false" seed="${tests.seed}" onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
 
             <fileset dir="${basedir}">
@@ -870,7 +936,7 @@
         <macrodef name="check.encoding">
            <attribute name="encoding" />
            <sequential>
-              <junit4:junit4>
+              <junit4:junit4 onNonEmptyWorkDirectory="wipe">
                   <classpath refid="tests.classpath" />
       
                   <fileset dir="${basedir}">
@@ -900,7 +966,7 @@
     </target>
     
     <target name="testHeartbeat">
-        <junit4:junit4 heartbeat="1">
+        <junit4:junit4 heartbeat="1"  onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
 
             <fileset dir="${basedir}">
@@ -914,7 +980,7 @@
     </target>
     
     <target name="timestamps">
-        <junit4:junit4 haltonfailure="false">
+        <junit4:junit4 haltonfailure="false"  onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
             <classpath>
                 <fileset dir=".." includes="dependency/randomized*.jar" />
@@ -932,7 +998,7 @@
     </target>
 
     <target name="sysoutsOnSuiteFailure">
-        <junit4:junit4 haltonfailure="false">
+        <junit4:junit4 haltonfailure="false"  onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
 
             <fileset dir="${basedir}">
@@ -946,7 +1012,7 @@
     </target>
 
     <target name="sysoutsOnSuiteTimeout">
-        <junit4:junit4 haltonfailure="false">
+        <junit4:junit4 haltonfailure="false"  onNonEmptyWorkDirectory="wipe">
             <classpath refid="tests.classpath" />
             <classpath>
                 <fileset dir=".." includes="dependency/randomized*.jar" />
@@ -963,7 +1029,7 @@
    </target>
 
    <target name="sysoutoom">
-      <junit4:junit4 haltonfailure="true" parallelism="2" shuffleOnSlave="true">
+      <junit4:junit4 onNonEmptyWorkDirectory="wipe" haltonfailure="true" parallelism="2" shuffleOnSlave="true">
           <classpath refid="tests.classpath" />
 
           <fileset dir="${basedir}">
@@ -985,7 +1051,7 @@
    </target>
    
    <target name="sysouts_passthrough">
-      <junit4:junit4 haltonfailure="true" parallelism="1" shuffleOnSlave="true">
+      <junit4:junit4 onNonEmptyWorkDirectory="wipe" haltonfailure="true" parallelism="1" shuffleOnSlave="true">
           <classpath refid="tests.classpath" />
 
           <fileset dir="${basedir}">
@@ -1048,7 +1114,7 @@
     </target>
     
    <target name="failureslist">
-      <junit4:junit4 haltonfailure="false" parallelism="2" uniqueSuiteNames="false">
+      <junit4:junit4 onNonEmptyWorkDirectory="wipe" haltonfailure="false" parallelism="2" uniqueSuiteNames="false">
           <classpath refid="tests.classpath" />
 
           <junit4:duplicate times="3">
@@ -1084,7 +1150,7 @@
    </target>
 
    <target name="oomcode">
-      <junit4:junit4 haltonfailure="true">
+      <junit4:junit4 onNonEmptyWorkDirectory="wipe" haltonfailure="true">
           <classpath refid="tests.classpath" />
 
           <fileset dir="${basedir}">
@@ -1102,7 +1168,7 @@
    </target>
    
    <target name="oompermgen">
-      <junit4:junit4 haltonfailure="true">
+      <junit4:junit4 onNonEmptyWorkDirectory="wipe" haltonfailure="true">
           <classpath refid="tests.classpath" />
           <classpath>
             <fileset dir=".." includes="dependency/asm*.jar" />
@@ -1124,7 +1190,7 @@
    </target>
 
   <target name="filtertrace_default">
-    <junit4:junit4 haltonfailure="false">
+    <junit4:junit4 onNonEmptyWorkDirectory="wipe" haltonfailure="false">
       <classpath refid="tests.classpath" />
 
       <fileset dir="${basedir}">
@@ -1145,7 +1211,7 @@
   </target>
   
   <target name="filtertrace_custom">
-    <junit4:junit4 haltonfailure="false">
+    <junit4:junit4 onNonEmptyWorkDirectory="wipe" haltonfailure="false">
       <classpath refid="tests.classpath" />
 
       <fileset dir="${basedir}">
@@ -1164,7 +1230,7 @@
   </target>
   
   <target name="allFilteredOut">
-    <junit4:junit4 ifNoTests="fail">
+    <junit4:junit4 onNonEmptyWorkDirectory="wipe" ifNoTests="fail">
       <classpath refid="tests.classpath" />
 
       <fileset dir="${basedir}">
@@ -1176,7 +1242,7 @@
   </target>
   
   <target name="oneIgnored">
-    <junit4:junit4 ifNoTests="fail">
+    <junit4:junit4 onNonEmptyWorkDirectory="wipe" ifNoTests="fail">
       <classpath refid="tests.classpath" />
 
       <fileset dir="${basedir}">
@@ -1188,7 +1254,7 @@
   </target>
   
   <target name="oneAssumptionIgnored">
-    <junit4:junit4 ifNoTests="fail">
+    <junit4:junit4 onNonEmptyWorkDirectory="wipe" ifNoTests="fail">
       <classpath refid="tests.classpath" />
 
       <fileset dir="${basedir}">
@@ -1200,7 +1266,7 @@
   </target>      
 
   <target name="oneSuccessful">
-    <junit4:junit4 ifNoTests="fail">
+    <junit4:junit4 onNonEmptyWorkDirectory="wipe" ifNoTests="fail">
       <classpath refid="tests.classpath" />
 
       <fileset dir="${basedir}">
@@ -1212,7 +1278,7 @@
   </target>      
 
   <target name="oneFailure">
-    <junit4:junit4 ifNoTests="fail">
+    <junit4:junit4 onNonEmptyWorkDirectory="wipe" ifNoTests="fail">
       <classpath refid="tests.classpath" />
 
       <fileset dir="${basedir}">
@@ -1224,7 +1290,7 @@
   </target>      
 
   <target name="oneError">
-    <junit4:junit4 ifNoTests="fail">
+    <junit4:junit4 onNonEmptyWorkDirectory="wipe" ifNoTests="fail">
       <classpath refid="tests.classpath" />
 
       <fileset dir="${basedir}">
@@ -1247,7 +1313,7 @@
       <local name="junit4.stats.nonIgnored" />
       <local name="junit4.stats.successful" />
 
-      <junit4:junit4 statsPropertyPrefix="junit4.stats" haltonfailure="false">
+      <junit4:junit4 onNonEmptyWorkDirectory="wipe" statsPropertyPrefix="junit4.stats" haltonfailure="false">
         <classpath refid="tests.classpath" />
   
         <fileset dir="${basedir}">
@@ -1289,7 +1355,7 @@
       <local name="junit4.stats.nonIgnored" />
       <local name="junit4.stats.successful" />
 
-      <junit4:junit4 haltonfailure="false" statsPropertyPrefix="junit4.stats">
+      <junit4:junit4 onNonEmptyWorkDirectory="wipe" haltonfailure="false" statsPropertyPrefix="junit4.stats">
         <classpath refid="tests.classpath" />
   
         <fileset dir="${basedir}">
@@ -1324,7 +1390,7 @@
   </target>
 
   <target name="replicateSingleTest">
-    <junit4:junit4 
+    <junit4:junit4 onNonEmptyWorkDirectory="wipe" 
         ifNoTests="fail" 
         haltonfailure="true" 
         parallelism="3"
@@ -1345,7 +1411,7 @@
   </target>
 
   <target name="replicationAndBalancing">
-    <junit4:junit4 
+    <junit4:junit4 onNonEmptyWorkDirectory="wipe" 
         ifNoTests="fail" 
         haltonfailure="true" 
         parallelism="3"
@@ -1367,7 +1433,7 @@
   </target>
   
   <target name="pseudoBalancing">
-    <junit4:junit4 
+    <junit4:junit4 onNonEmptyWorkDirectory="wipe" 
         ifNoTests="fail" 
         haltonfailure="true" 
         parallelism="3"
@@ -1388,7 +1454,7 @@
   </target>
 
   <target name="stackoverflow">
-    <junit4:junit4 
+    <junit4:junit4 onNonEmptyWorkDirectory="wipe" 
         haltonfailure="true" parallelism="1" 
         jvmoutputaction="pipe,ignore"
         debugstream="true"
@@ -1406,7 +1472,7 @@
   </target>
 
   <target name="errorsSoFar">
-    <junit4:junit4 haltonfailure="false">
+    <junit4:junit4 onNonEmptyWorkDirectory="wipe" haltonfailure="false">
       <classpath refid="tests.classpath" />
 
       <fileset dir="${basedir}">

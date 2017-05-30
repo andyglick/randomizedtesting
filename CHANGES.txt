@@ -5,18 +5,123 @@ RandomizedTesting, Change Log
 For an up-to-date CHANGES file see 
 https://github.com/randomizedtesting/randomizedtesting/blob/master/CHANGES
 
-======================= randomizedtesting 2.4.0-SNAPSHOT ====================
+======================= randomizedtesting 2.5.2-SNAPSHOT ====================
+
+======================= randomizedtesting 2.5.1 ====================
 
 Changes in Backwards Compatibility
+
+  * GH-248: Cleaning up some confusion on RandomizedTest.randomAscii* and
+    RandomStrings.randomAscii* methods. These methods generated 
+    random strings based on letters from the Unicode basic latin block (C0).
+    All these methods are now deprecated and will be removed in favor of
+    more explicit methods that tell exactly (?) what kind of letters are 
+    involved (Ryan Ernst, Dawid Weiss). For details, see:
+
+    RandomStrings.randomAsciiLettersOfLength(..)
+    RandomStrings.randomAsciiLettersOfLengthBetween(..)
+    RandomStrings.randomAsciiAlphanumOfLength(..)
+    RandomStrings.randomAsciiAlphanumOfLengthBetween(..)
+
+======================= randomizedtesting 2.5.0 ====================
+
+Changes in Backwards Compatibility
+
+  * GH-243: Switches from File to NIO (Path) APIs in a few places may result
+    in slightly different runner's behavior (on exceptional conditions).
+
+  * GH-244: the new onNonEmptyWorkDirectory attribute's default value is 
+    'fail' which may break existing builds that have garbage in work directories
+    of forked JVMs. Change explicitly to any of the alternatives ('ignore' or
+    'wipe') or fix your build to wipe the temporary folders yourself.
+
+  * GH-246: RequireAssertionsRule enforcement optional (consistent with 
+    "-Dtests.asserts"); explicit target class is also required. (Dawid Weiss)
+
+New Features
+
+  * GH-244: A new attribute "onNonEmptyWorkDirectory" controls the action to
+    take on non-empty initial work directory (for isolated JVMs). (Dawid Weiss)
 
 Bug Fixes
 
 Other Changes
 
+  * GH-246: RequireAssertionsRule enforcement optional (consistent with 
+    "-Dtests.asserts"); explicit target class is also required. (Dawid Weiss)
+
+  * GH-243: Switches from File to NIO (Path) APIs in a few places in the ANT
+    runner. Improved messages concerning non-empty temporary JVM folder
+    (both initially and at the end of the tests' run). (Dawid Weiss)
+
+  * GH-245: Integrate Forbidden-APIs check and fix follow-up issues. 
+    (Dawid Weiss)
+
+======================= randomizedtesting 2.4.1 ====================
+
+New Features
+
+  * GH-240: Add RandomPicks.randomFrom on primitive arrays. (Dawid Weiss)
+
+Bug Fixes
+
+  * GH-242: RandomizedTest.nextTempName uses locale-sensitive String.format.
+    (Dawid Weiss)
+
+======================= randomizedtesting 2.4.0 ====================
+
+Changes in Backwards Compatibility
+
+  * GH-237: Methods previously found in RandomInts have been moved to 
+    RandomNumbers. (Dawid Weiss)
+
+  * GH-234: Run strict validation (thread-ownership, lifecycle) in 
+    AssertingRandom only with assertions enabled. This change means that running
+    without -ea will from now on ignore the fact that random context's Random
+    instance is shared where it shouldn't be. On the other hand, any 
+    additional memory barriers can be now avoided, in particular when used in
+    conjunction with @TestContextRandomSupplier (see GH-235 below).  
+
+    To enable consistent checking, enable assertions selectively (for 
+    com.carrotsearch.randomizedtesting package only). (Dawid Weiss)
+
+  * GH-229: The default implementation of the Random instance returned from
+    the randomization context has been changed to Xoroshiro128P, details here:
+    http://xoroshiro.di.unimi.it/
+
+    The returned Random isn't synchronized and should yield much better
+    pseudo-random sequences than the default Java's Random. (Dawid Weiss)
+
+New Features
+
+  * GH-238: Add BiasedNumbers (random selection with bias towards "evil"
+    numbers, in particular floats) as an alternative to RandomNumbers.
+    (Dawid Weiss)
+
+  * GH-237: Rename RandomInts to RandomNumbers and add methods operating 
+    on longs. (Dawid Weiss).
+
+  * GH-235: A new class annotation was added: @TestContextRandomSupplier allows
+    declaring a custom class (RandomSupplier) that supplies a Random for the given
+    seed. This supplier can return any Random instance for the given initial 
+    seed (secure random, faster-than-jdk random, non-random random...).
+    (Dawid Weiss)  
+
+Bug Fixes
+
+  * GH-233: some adjustments and refactorings in an attempt to avoid deadlocks
+    on suite timeouts. Very hard to reproduce (i.e., impossible) and some very 
+    odd stack traces too. (Dawid Weiss)
+
+Other Changes
+
+  * GH-232: Rework reporting of ignored, assumption-ignored, 
+    filtering-expression ignored tests. (Dawid Weiss)
+
   * GH-218: There are some internal changes in handling @Nightly annotation.
     The support for @Nightly is now provided via GroupEvaluator (and this
     class is now public, with methods allowing inspection of whether a test
-    would be filtered out or not).
+    would be filtered out or not). (Dawid Weiss)
 
 ======================= randomizedtesting 2.3.4 ====================
 
