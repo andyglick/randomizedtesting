@@ -46,7 +46,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
+import com.carrotsearch.ant.tasks.junit4.runlisteners.RunListenerClass;
 import org.apache.tools.ant.AntClassLoader;
 import org.apache.tools.ant.BuildException;
 import org.apache.tools.ant.Project;
@@ -281,6 +283,11 @@ public class JUnit4 extends Task {
    * Listeners listening on the event bus.
    */
   private List<Object> listeners = new ArrayList<>();
+
+  /**
+   * User-defined {@link org.junit.runner.notification.RunListener}s.
+   */
+  private List<RunListenerClass> runListeners = new ArrayList<>();
 
   /**
    * Balancers scheduling tests for individual JVMs in parallel mode.
@@ -723,6 +730,13 @@ public class JUnit4 extends Task {
    */
   public ListenersList createListeners() {
     return new ListenersList(listeners);
+  }
+
+  /**
+   * Creates a new list of user-defined run listeners.
+   */
+  public RunListenerList createRunListeners() {
+    return new RunListenerList(runListeners);
   }
 
   /**
@@ -1411,6 +1425,14 @@ public class JUnit4 extends Task {
     }
 
     InputStream eventStream = new TailInputStream(eventFile);
+
+    // Process user-defined RunListener classes.
+    if (!runListeners.isEmpty()) {
+      String classNames = runListeners.stream().map(x -> x.getClassName()).collect(Collectors.joining(","));
+
+      commandline.createArgument().setValue(SlaveMain.OPTION_RUN_LISTENERS);
+      commandline.createArgument().setValue(classNames);
+    }
 
     // Set up input suites file.
     commandline.createArgument().setValue("@" + classNamesFile.toAbsolutePath().normalize());

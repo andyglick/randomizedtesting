@@ -103,11 +103,23 @@ public class SlaveMain {
   public static final String OPTION_DEBUGSTREAM = "-debug";
 
   /**
+   * User-defined RunListener classes.
+   */
+  public static final String OPTION_RUN_LISTENERS = "-runListeners";
+
+  /**
    * Fire a runner failure after startup to verify messages
    * are propagated properly. Not really useful in practice...
    */
   public static final String SYSPROP_FIRERUNNERFAILURE =
       SlaveMain.class.getName() + ".fireRunnerFailure";
+
+  /**
+   * Delay the initial bootstrap event from the forked JVM 
+   * (used in tests).
+   */
+  public static final String SYSPROP_FORKEDJVM_DELAY_MS =
+      "junit4.tests.internal.initialDelayMs";
 
   /**
    * Event sink.
@@ -122,7 +134,10 @@ public class SlaveMain {
 
   /** Debug stream to flush progress information to. */
   private File debugMessagesFile;
-  
+
+  /** List of RunListener classes */
+  private String runListeners;
+
   /** 
    * Multiplex calls to System streams to both event stream
    * and the original streams?
@@ -238,12 +253,22 @@ public class SlaveMain {
         try {
           Runner runner = request.getRunner();
           methodFilter.apply(runner);
-  
+
+          // New RunListener instances should be added per class and then removed from the RunNotifier
+          ArrayList<RunListener> runListenerInstances = instantiateRunListeners();
+          for (RunListener runListener : runListenerInstances) {
+            fNotifier.addListener(runListener);
+          }
+
           fNotifier.fireTestRunStarted(runner.getDescription());
           debug(debug, "Runner.run(" + clName + ")");
           runner.run(fNotifier);
           debug(debug, "Runner.done(" + clName + ")");
           fNotifier.fireTestRunFinished(result);
+
+          for (RunListener runListener : runListenerInstances) {
+            fNotifier.removeListener(runListener);
+          }
         } catch (NoTestsRemainException e) {
           // Don't complain if all methods have been filtered out. 
           // I don't understand the reason why this exception has been
@@ -302,6 +327,7 @@ public class SlaveMain {
       File  eventsFile = null;
       boolean suitesOnStdin = false;
       List<String> testClasses = new ArrayList<>();
+      String runListeners = null;
 
       while (!args.isEmpty()) {
         String option = args.pop();
@@ -318,6 +344,8 @@ public class SlaveMain {
             raf.setLength(0);
             raf.close();
           }
+        } else if (option.equals(OPTION_RUN_LISTENERS)) {
+          runListeners = args.pop();
         } else if (option.startsWith(OPTION_DEBUGSTREAM)) {
           debugStream = true;
         } else if (option.startsWith("@")) {
@@ -333,6 +361,12 @@ public class SlaveMain {
       if (eventsFile == null) {
         throw new IOException("You must specify communication channel for events.");
       }
+
+      // Delay the forked JVM a bit (for tests).
+      if (System.getProperty(SYSPROP_FORKEDJVM_DELAY_MS) != null) {
+        Thread.sleep(Integer.parseInt(System.getProperty(SYSPROP_FORKEDJVM_DELAY_MS)));
+      }
+      
       // Send bootstrap package.
       serializer = new Serializer(new EventsOutputStream(eventsFile))
         .serialize(new BootstrapEvent())
@@ -344,6 +378,7 @@ public class SlaveMain {
       final SlaveMain main = new SlaveMain(serializer);
       main.flushFrequently = flushFrequently;
       main.debugMessagesFile = debugStream ? new File(eventsFile.getAbsolutePath() + ".debug"): null;
+      main.runListeners = runListeners;
 
       final Iterator<String> stdInput;
       if (suitesOnStdin) { 
@@ -495,5 +530,20 @@ public class SlaveMain {
       // Can't do anything, really. Probably an OOM?
       w.println("ERROR: Couldn't even serialize a warning.");
     }
+  }
+
+  /**
+   * Generates JUnit 4 RunListener instances for any user defined RunListeners
+   */
+  private ArrayList<RunListener> instantiateRunListeners() throws Exception {
+    ArrayList<RunListener> instances = new ArrayList<>();
+
+    if (runListeners != null) {
+      for (String className : Arrays.asList(runListeners.split(","))) {
+        instances.add((RunListener) this.instantiate(className).newInstance());
+      }
+    }
+
+    return instances;
   }
 }

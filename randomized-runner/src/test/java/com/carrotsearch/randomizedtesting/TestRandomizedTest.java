@@ -8,6 +8,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.TimeZone;
+import java.util.Arrays;
 
 import org.junit.Test;
 import org.junit.internal.AssumptionViolatedException;
@@ -15,16 +17,6 @@ import org.junit.internal.AssumptionViolatedException;
 import static org.junit.Assert.*;
 
 public class TestRandomizedTest extends RandomizedTest {
-  @Test
-  public void testRandomInt() {
-    boolean [] array = new boolean [10];
-    for (int i = 0; i < 10000; i++) 
-      array[randomInt(array.length - 1)] = true;
-
-    for (boolean b: array) 
-      assertTrue(b);
-  }
-
   @Test
   public void testRandomIntBetween() {
     boolean [] array = new boolean [10];
@@ -144,7 +136,22 @@ public class TestRandomizedTest extends RandomizedTest {
   }
 
   @Test
-  public void testRandomTimeZone() {
+  public void testRandomTimeZone() throws Exception {
+    try {
+      final String[] availableIDs = TimeZone.getAvailableIDs();
+      Arrays.sort(availableIDs);
+      for (String id : availableIDs) {
+        assertNotNull(id);
+        if (TimeZone.getTimeZone(id) == null) {
+          fail("getTimeZone null: " + id);
+        }
+      }
+    } catch (Exception e) {
+      System.out.println("Wtf.");
+      e.printStackTrace();
+      throw e;
+    }
+
     assertNotNull(randomTimeZone());
   }
 
@@ -153,7 +160,7 @@ public class TestRandomizedTest extends RandomizedTest {
     assertTrue(randomAsciiLettersOfLength(0).isEmpty());
 
     for (int i = 0; i < 1000; i++) { 
-      int maxLength = randomInt(20);
+      int maxLength = randomIntBetween(0, 20);
       String str = randomAsciiLettersOfLength(maxLength);
       assertTrue(str.matches("[a-zA-Z]*"));
       assertTrue(str.length() <= maxLength);
@@ -165,7 +172,7 @@ public class TestRandomizedTest extends RandomizedTest {
     assertTrue(randomAsciiAlphanumOfLength(0).isEmpty());
 
     for (int i = 0; i < 1000; i++) { 
-      int maxLength = randomInt(20);
+      int maxLength = randomIntBetween(0, 20);
       String str = randomAsciiAlphanumOfLength(maxLength);
       assertTrue(str.matches("[a-zA-Z0-9]*"));
       assertTrue(str.length() <= maxLength);
@@ -175,7 +182,7 @@ public class TestRandomizedTest extends RandomizedTest {
   @Test
   public void testRandomUnicodeOfLength() {
     for (int i = 0; i < 1000; i++) { 
-      int maxLength = randomInt(20);
+      int maxLength = randomIntBetween(0, 20);
       String str = randomUnicodeOfLength(maxLength);
       assertTrue(str.length() + " " + maxLength, str.length() <= maxLength);
     }
@@ -187,8 +194,8 @@ public class TestRandomizedTest extends RandomizedTest {
     assertTrue(randomRealisticUnicodeOfCodepointLength(0).isEmpty());
 
     for (int i = 0; i < 1000; i++) { 
-      int minLength = randomInt(20);
-      int maxLength = minLength + randomInt(20);
+      int minLength = randomIntBetween(0, 20);
+      int maxLength = minLength + randomIntBetween(0, 20);
       String str = randomRealisticUnicodeOfCodepointLength(maxLength);
       int codepoints = countCodepoints(str);
       assertTrue(codepoints <= maxLength);

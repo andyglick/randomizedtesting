@@ -5,7 +5,7 @@
   <parent>
     <groupId>com.carrotsearch.randomizedtesting</groupId>
     <artifactId>randomizedtesting-parent</artifactId>
-    <version>2.5.2-SNAPSHOT</version>
+    <version>2.6.4-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
@@ -224,6 +224,7 @@
               <inclusion>
                 <groupId>org.ow2.asm</groupId>
                 <artifactId>asm</artifactId>
+                <filter>!module-info.class</filter>
               </inclusion>
               <inclusion>
                 <groupId>org.simpleframework</groupId>
