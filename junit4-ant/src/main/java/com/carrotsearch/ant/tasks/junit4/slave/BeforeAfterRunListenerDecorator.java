@@ -18,6 +18,7 @@ public abstract class BeforeAfterRunListenerDecorator extends RunListener {
     this.delegate = delegate;
   }
 
+  @Override
   public final void testRunStarted(Description description) throws Exception {
     before();
     try {
@@ -27,6 +28,7 @@ public abstract class BeforeAfterRunListenerDecorator extends RunListener {
     }
   }
 
+  @Override
   public final void testRunFinished(Result result) throws Exception {
     before();
     try {
@@ -36,6 +38,7 @@ public abstract class BeforeAfterRunListenerDecorator extends RunListener {
     }
   }
 
+  @Override
   public final void testStarted(Description description) throws Exception {
     before();
     try {
@@ -45,6 +48,7 @@ public abstract class BeforeAfterRunListenerDecorator extends RunListener {
     }
   }
 
+  @Override
   public final void testFinished(Description description) throws Exception {
     before();
     try {
@@ -54,6 +58,7 @@ public abstract class BeforeAfterRunListenerDecorator extends RunListener {
     }
   }
 
+  @Override
   public final void testFailure(Failure failure) throws Exception {
     before();
     try {
@@ -63,6 +68,7 @@ public abstract class BeforeAfterRunListenerDecorator extends RunListener {
     }
   }
 
+  @Override
   public final void testAssumptionFailure(Failure failure) {
     before();
     try {
@@ -72,6 +78,7 @@ public abstract class BeforeAfterRunListenerDecorator extends RunListener {
     }
   }
 
+  @Override
   public final void testIgnored(Description description) throws Exception {
     before();
     try {

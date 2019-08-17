@@ -1,5 +1,8 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+  http://maven.apache.org/maven-v4_0_0.xsd">
+
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
@@ -18,6 +21,7 @@
 
   <properties>
     <maven.deploy.skip>true</maven.deploy.skip>
+    <!--<maven.test.skip>true</maven.test.skip>-->
   </properties>
 
   <dependencies>
@@ -47,12 +51,12 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
-        <executions>
-          <execution>
-            <id>default-test</id>
-            <phase>none</phase>
-          </execution>
-        </executions>
+        <!--<executions>-->
+          <!--<execution>-->
+            <!--<id>default-test</id>-->
+            <!--<phase>none</phase>-->
+          <!--</execution>-->
+        <!--</executions>-->
       </plugin>
 
       <!-- 
@@ -104,62 +108,62 @@
       </plugin>
 
       <!-- Run tests with JUnit4 under security manager -->
-      <plugin>
-        <groupId>com.carrotsearch.randomizedtesting</groupId>
-        <artifactId>junit4-maven-plugin</artifactId>
-        <version>${project.version}</version>
-        <executions>
-          <execution>
-            <id>junit4-tests</id>
-            <goals>
-              <goal>junit4</goal>
-            </goals>
-            <!-- run in integration-test phase, so jars are "like production" for permission -->
-            <phase>integration-test</phase>
-            <configuration>
-              <leaveTemporary>false</leaveTemporary>
-              <haltOnFailure>true</haltOnFailure>
-              
-              <!-- Our tests are in primary classes folder. -->
-              <!-- <testClassesDirectory>${project.build.outputDirectory}</testClassesDirectory> -->
+      <!--<plugin>-->
+        <!--<groupId>com.carrotsearch.randomizedtesting</groupId>-->
+        <!--<artifactId>junit4-maven-plugin</artifactId>-->
+        <!--<version>${project.version}</version>-->
+        <!--<executions>-->
+          <!--<execution>-->
+            <!--<id>junit4-tests</id>-->
+            <!--<goals>-->
+              <!--<goal>junit4</goal>-->
+            <!--</goals>-->
+            <!--&lt;!&ndash; run in integration-test phase, so jars are "like production" for permission &ndash;&gt;-->
+            <!--<phase>integration-test</phase>-->
+            <!--<configuration>-->
+              <!--<leaveTemporary>false</leaveTemporary>-->
+              <!--<haltOnFailure>true</haltOnFailure>-->
+              <!---->
+              <!--&lt;!&ndash; Our tests are in primary classes folder. &ndash;&gt;-->
+              <!--&lt;!&ndash; <testClassesDirectory>${project.build.outputDirectory}</testClassesDirectory> &ndash;&gt;-->
 
-              <!-- Attach a simple listener. -->
-              <listeners>
-                <report-text
-                    showThrowable="true" 
-                    showStackTraces="true" 
-                    showOutput="onerror" 
+              <!--&lt;!&ndash; Attach a simple listener. &ndash;&gt;-->
+              <!--<listeners>-->
+                <!--<report-text-->
+                    <!--showThrowable="true" -->
+                    <!--showStackTraces="true" -->
+                    <!--showOutput="onerror" -->
 
-                    showStatusOk="true"
-                    showStatusError="true"
-                    showStatusFailure="true"
-                    showStatusIgnored="true"
+                    <!--showStatusOk="true"-->
+                    <!--showStatusError="true"-->
+                    <!--showStatusFailure="true"-->
+                    <!--showStatusIgnored="true"-->
 
-                    showSuiteSummary="false">
-                    <filtertrace enabled="false"/>
-                </report-text>
+                    <!--showSuiteSummary="false">-->
+                    <!--<filtertrace enabled="false"/>-->
+                <!--</report-text>-->
 
-                <!-- JSON report with HTML scaffolding. -->
-                <report-json file="${project.build.directory}/result-json/results.html" />
-              </listeners>
+                <!--&lt;!&ndash; JSON report with HTML scaffolding. &ndash;&gt;-->
+                <!--<report-json file="${project.build.directory}/result-json/results.html" />-->
+              <!--</listeners>-->
 
-              <assertions>
-                <enable package="com.carrotsearch"/>
-              </assertions>
+              <!--<assertions>-->
+                <!--<enable package="com.carrotsearch"/>-->
+              <!--</assertions>-->
 
-              <!-- do all system properties here, to avoid policy hell! -->
-              <jvmArgs>
-                <param>-Djava.security.manager</param>
-                <param>-Djava.security.policy==${project.basedir}/security.policy</param>
-                <param>-Djava.security.debug=all</param>
-                <param>-Djunit.jar.url=${junit.jar.url}</param>
-                <param>-Djunit4.jar.url=${junit4.jar.url}</param>
-                <param>-Drandomizedtesting.jar.url=${randomizedtesting.jar.url}</param>
-              </jvmArgs>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
+              <!--&lt;!&ndash; do all system properties here, to avoid policy hell! &ndash;&gt;-->
+              <!--<jvmArgs>-->
+                <!--<param>-Djava.security.manager</param>-->
+                <!--<param>-Djava.security.policy==${project.basedir}/security.policy</param>-->
+                <!--<param>-Djava.security.debug=all</param>-->
+                <!--<param>-Djunit.jar.url=${junit.jar.url}</param>-->
+                <!--<param>-Djunit4.jar.url=${junit4.jar.url}</param>-->
+                <!--<param>-Drandomizedtesting.jar.url=${randomizedtesting.jar.url}</param>-->
+              <!--</jvmArgs>-->
+            <!--</configuration>-->
+          <!--</execution>-->
+        <!--</executions>-->
+      <!--</plugin>-->
     </plugins>
   </build>
 </project>

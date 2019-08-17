@@ -7,7 +7,6 @@ import org.junit.runner.Description;
 import com.carrotsearch.ant.tasks.junit4.gson.stream.JsonReader;
 import com.carrotsearch.ant.tasks.junit4.gson.stream.JsonWriter;
 
-
 /**
  * Serialized failure.
  */

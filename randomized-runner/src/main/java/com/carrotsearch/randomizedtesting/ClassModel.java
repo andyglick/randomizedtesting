@@ -92,7 +92,8 @@ public final class ClassModel {
           if (model.getAccessScope() != Scope.PRIVATE) {
             List<T_MODEL> list = tops.get(model);
             if (list == null) {
-              tops.put(model, list = new ArrayList<T_MODEL>());
+              list = new ArrayList<T_MODEL>();
+              tops.put(model, list);
             }
             for (Iterator<T_MODEL> i = list.iterator(); i.hasNext();) {
               T_MODEL sub = i.next();
@@ -124,25 +125,24 @@ public final class ClassModel {
     }
     
     @Override
-    boolean overridesOrShadows(ClassElement<Method, MethodModel> sub) {
+    boolean overridesOrShadows(ClassElement<Method, MethodModel> sub)
+    {
       final Method m1 = element;
       final Method m2 = sub.element;
 
-      if (!m1.getName().equals(m2.getName())) {
+      if (!m1.getName().equals(m2.getName()))
+      {
         return false;
       }
 
-      if (!Arrays.equals(m1.getParameterTypes(), m2.getParameterTypes())) {
+      if (!Arrays.equals(m1.getParameterTypes(), m2.getParameterTypes()))
+      {
         return false;
       }
-      
+
       final Package package1 = m1.getDeclaringClass().getPackage();
       final Package package2 = m2.getDeclaringClass().getPackage();
-      if (getAccessScope() == Scope.PACKAGE) {
-        return package1.equals(package2);
-      } else {
-        return true;
-      }
+      return getAccessScope() != Scope.PACKAGE || package1.equals(package2);
     }
     
     @Override
@@ -157,9 +157,10 @@ public final class ClassModel {
     @Override
     public boolean equals(Object obj) {
       MethodModel other = (MethodModel) obj;
-      return element.getName().equals(other.element.getName()) &&
-             Arrays.equals(element.getParameterTypes(),
-                           other.element.getParameterTypes());
+      if (element.getName().equals(other.element.getName()) &&
+        Arrays.equals(element.getParameterTypes(),
+          other.element.getParameterTypes())) return true;
+      else return false;
     }
   }
 
@@ -250,20 +251,21 @@ public final class ClassModel {
 
   public Map<Method,MethodModel> getAnnotatedLeafMethods(final Class<? extends Annotation> annotation) {
     LinkedHashMap<Method,MethodModel> result = new LinkedHashMap<Method,ClassModel.MethodModel>();
-outer:
-    for (Map.Entry<Method,MethodModel> e : getMethods().entrySet()) {
+
+    outer: for (Map.Entry<Method,MethodModel> e : getMethods().entrySet()) {
+
       MethodModel mm = e.getValue();
 
+//      LOG.warn("getAnnotatedLeafMethods methodModel is: " + mm
       if (mm.element.isAnnotationPresent(annotation)) {
-        for (MethodModel next = mm.getDown(); next != null; next = next.getDown()) {
-          if (next.element.isAnnotationPresent(annotation)) {
-            // At least one override has the annotation on it, so skip any super methods
-            // because it'd double the test.
+
+        for (mm = mm.getDown(); mm != null; mm = mm.getDown()) {
+
+          if (mm.element.isAnnotationPresent(annotation)) {
             continue outer;
           }
         }
-
-        result.put(e.getKey(), mm);
+        result.put(e.getKey(), e.getValue());
       }
     }
     return Collections.unmodifiableMap(result);

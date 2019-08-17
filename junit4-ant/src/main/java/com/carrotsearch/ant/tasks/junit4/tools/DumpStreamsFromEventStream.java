@@ -19,6 +19,7 @@ import com.google.common.io.Closer;
 
 @SuppressForbidden("legitimate sysstreams.")
 public class DumpStreamsFromEventStream {
+
   public static void main(String[] args) throws Exception {
     File inputFile;
 
@@ -31,16 +32,20 @@ public class DumpStreamsFromEventStream {
     }
 
     Closer closer = Closer.create();
-    try {
-      OutputStream sysout = new BufferedOutputStream(new FileOutputStream(new File(inputFile.getAbsolutePath() + ".sysout")));
+
+    try (OutputStream sysout = new BufferedOutputStream(new FileOutputStream(new File(inputFile.getAbsolutePath() + ".sysout")));
+         OutputStream syserr = new BufferedOutputStream(new FileOutputStream(new File(inputFile.getAbsolutePath() + ".syserr")));
+         InputStream is = new BufferedInputStream(new FileInputStream(inputFile));
+         JsonReader input = new JsonReader(new InputStreamReader(is, Charsets.UTF_8))
+    ) {
+
       closer.register(sysout);
 
-      OutputStream syserr = new BufferedOutputStream(new FileOutputStream(new File(inputFile.getAbsolutePath() + ".syserr")));
+
       closer.register(syserr);
 
-      InputStream is = new BufferedInputStream(new FileInputStream(inputFile));
+
       closer.register(is);
-      JsonReader input = new JsonReader(new InputStreamReader(is, Charsets.UTF_8));
       input.setLenient(true);
 
       JsonToken peek;

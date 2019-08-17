@@ -25,7 +25,7 @@ import com.carrotsearch.ant.tasks.junit4.gson.stream.JsonWriter;
 import com.carrotsearch.randomizedtesting.WriterOutputStream;
 
 public class AggregatedSuiteResultEvent implements AggregatedResultEvent {
-  private transient final ForkedJvmInfo slave;
+  private final transient ForkedJvmInfo slave;
 
   private final long executionTime;
   private final long startTimestamp;

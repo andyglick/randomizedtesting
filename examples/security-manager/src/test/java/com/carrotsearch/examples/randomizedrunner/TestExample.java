@@ -2,6 +2,7 @@ package com.carrotsearch.examples.randomizedrunner;
 
 import org.junit.Assert;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -31,6 +32,7 @@ import com.carrotsearch.randomizedtesting.annotations.TimeoutSuite;
 @ThreadLeakLingering(linger = 20000) // Wait long for leaked threads to complete before failure. zk needs this.
 @ThreadLeakZombies(Consequence.IGNORE_REMAINING_TESTS)
 @TimeoutSuite(millis = 200000000)
+@Ignore
 public class TestExample extends Assert {
 
   @BeforeClass
@@ -39,11 +41,16 @@ public class TestExample extends Assert {
   }
 
   @Test
+  public void testDummy(){}
+
+  @Test
+  @Ignore
   public void test() {
     System.out.println("test");
   }
   
   @Test
+  @Ignore
   public void noPermissions() {
     System.err.println("checking permission system.");
     try {

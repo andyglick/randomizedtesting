@@ -13,10 +13,10 @@ import com.carrotsearch.ant.tasks.junit4.gson.stream.JsonWriter;
  * An abstract {@link IEvent}.
  */
 abstract class AbstractEvent implements RemoteEvent {
-  private final static char [] HEX = "0123456789ABCDEF".toCharArray();
+  private static final char [] HEX = "0123456789ABCDEF".toCharArray();
 
   /** Type is recreated in constructors anyway. */
-  private transient final EventType type;
+  private final EventType type;
 
   public AbstractEvent(EventType type) {
     if (this.getClass() != type.eventClass) {
@@ -83,8 +83,7 @@ abstract class AbstractEvent implements RemoteEvent {
       if (chr != '%') {
         baos.write(chr);
       } else {
-        baos.write((hexValue(ascii.charAt(++i)) << 4) |
-                    hexValue(ascii.charAt(++i)));
+        baos.write((hexValue(ascii.charAt(++i)) << 4) | hexValue(ascii.charAt(++i)));
       }
     }
     return baos.toByteArray();

@@ -128,27 +128,38 @@ public class TestRemoteEventSerialization extends RandomizedTest {
     StringWriter sw = new StringWriter();
 
     final boolean lenient = randomBoolean();
-    JsonWriter jw = new JsonWriter(sw);
-    jw.setIndent("  ");
-    jw.setLenient(lenient);
-    event.serialize(jw);
-    jw.close();
+
+    try (JsonWriter jw = new JsonWriter(sw);)
+    {
+      jw.setIndent("  ");
+      jw.setLenient(lenient);
+      event.serialize(jw);
+    }
 
     String serialized1 = sw.toString();
-    JsonReader jr = new JsonReader(new StringReader(serialized1));
-    jr.setLenient(lenient);
-    RemoteEvent deserialized = event.getType().deserialize(jr);
 
-    
-    // If we serialize again, the contents should be identical.
+    RemoteEvent deserialized;
+
+    try (JsonReader jr = new JsonReader(new StringReader(serialized1));)
+    {
+      jr.setLenient(lenient);
+      deserialized = event.getType().deserialize(jr);
+    }
+
+
     sw.getBuffer().setLength(0);
-    jw = new JsonWriter(sw);
-    jw.setIndent("  ");
-    jw.setLenient(lenient);
-    deserialized.serialize(jw);
-    jw.close();
+    try (JsonWriter jw = new JsonWriter(sw);)
+    {
+      // If we serialize again, the contents should be identical.
+      jw.setIndent("  ");
+      jw.setLenient(lenient);
+      deserialized.serialize(jw);
+    }
     
     String serialized2 = sw.toString();
+
+    sw.close();
+
     if (!serialized2.equals(serialized1)) {
       fail("Roundtrip serialization failed:\n1: " + serialized1 + "\n2: " + serialized2);
     }
