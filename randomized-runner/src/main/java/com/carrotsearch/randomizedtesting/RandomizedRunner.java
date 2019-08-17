@@ -39,7 +39,8 @@ import org.junit.ClassRule;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.internal.AssumptionViolatedException;
+import org.junit.Assert;
+import org.junit.AssumptionViolatedException;
 import org.junit.rules.TestRule;
 import org.junit.runner.Description;
 import org.junit.runner.Result;
@@ -79,8 +80,6 @@ import com.carrotsearch.randomizedtesting.annotations.ThreadLeakZombies.Conseque
 import com.carrotsearch.randomizedtesting.annotations.Timeout;
 import com.carrotsearch.randomizedtesting.annotations.TimeoutSuite;
 import com.carrotsearch.randomizedtesting.rules.StatementAdapter;
-
-import junit.framework.Assert;
 
 /**
  * A {@link Runner} implementation for running randomized test cases with 
@@ -228,7 +227,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
   final Randomness runnerRandomness;
 
   /** 
-   * If {@link #SYSPROP_RANDOM_SEED} property is used with two arguments (master:method)
+   * If {@link SysGlobals#SYSPROP_RANDOM_SEED} property is used with two arguments (master:method)
    * then this field contains method-level override. 
    */
   private Randomness testCaseRandomnessOverride;
@@ -236,7 +235,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
   /** 
    * The number of each test's randomized iterations.
    * 
-   * @see #SYSPROP_ITERATIONS
+   * @see SysGlobals#SYSPROP_ITERATIONS
    */
   private final Integer iterationsOverride;
 
@@ -259,7 +258,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
   private final List<RunListener> autoListeners = new ArrayList<RunListener>();
 
   /**
-   * @see #SYSPROP_APPEND_SEED
+   * @see SysGlobals#SYSPROP_APPEND_SEED
    */
   private boolean appendSeedParameter;
 
@@ -460,27 +459,31 @@ public final class RandomizedRunner extends Runner implements Filterable {
       descriptions.add(tc.description);
     }
 
-    prune(suiteDescription, descriptions);
+    suiteDescription = prune(suiteDescription, descriptions);
   }
 
-  private static void prune(Description suite, Set<Description> permitted) {
+  private static Description prune(Description suite, Set<Description> permitted) {
     if (suite.isSuite()) {
       ArrayList<Description> children = suite.getChildren();
       ArrayList<Description> retained = new ArrayList<>(children.size());
       for (Description child : children) {
         if (child.isSuite()) {
-          prune(child, permitted);
+          final Description description = prune(child, permitted);
           if (!child.getChildren().isEmpty()) {
-            retained.add(child);
+            retained.add(description);
           }
         } else if (permitted.contains(child)) {
           retained.add(child);
         }
       }
 
-      children.clear();
-      children.addAll(retained);
+      final Description suiteDescription = suite.childlessCopy();
+      for (Description description : retained) {
+        suiteDescription.addChild(description);
+      }
+      return suiteDescription;
     }
+    return suite;
   }
 
   /**
@@ -705,7 +708,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
             s.evaluate();
           } catch (Throwable t) {
             t = augmentStackTrace(t, runnerRandomness);
-            if (t instanceof AssumptionViolatedException) {
+            if (isAssumptionViolated(t)) {
               // Fire assumption failure before method ignores. (GH-103).
               notifier.fireTestAssumptionFailed(new Failure(suiteDescription, t));
   
@@ -847,7 +850,8 @@ public final class RandomizedRunner extends Runner implements Filterable {
     String ignoreReason = ge.getIgnoreReason(c.method, suiteClass);
     if (ignoreReason != null) {
       notifier.fireTestStarted(c.description);
-      notifier.fireTestAssumptionFailed(new Failure(c.description, new InternalAssumptionViolatedException(ignoreReason)));
+      notifier.fireTestAssumptionFailed(new Failure(c.description,
+          new AssumptionViolatedException(ignoreReason)));
       notifier.fireTestFinished(c.description);
     }
   }
@@ -943,7 +947,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
       s.evaluate();
     } catch (Throwable e) {
       e = augmentStackTrace(e);
-      if (e instanceof AssumptionViolatedException) {
+      if (isAssumptionViolated(e)) {
         notifier.fireTestAssumptionFailed(new Failure(c.description, e));
       } else {
         fireTestFailure(notifier, c.description, e);
@@ -1251,7 +1255,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
   /**
    * Collect all test candidates, regardless if they will be executed or not. At this point
    * individual test methods are also expanded into multiple executions corresponding
-   * to the number of iterations ({@link #SYSPROP_ITERATIONS}) and the initial method seed 
+   * to the number of iterations ({@link SysGlobals#SYSPROP_ITERATIONS}) and the initial method seed
    * is preassigned. 
    * 
    * <p>The order of test candidates is shuffled based on the runner's random.</p> 
@@ -1429,7 +1433,11 @@ public final class RandomizedRunner extends Runner implements Filterable {
         if (!formattedArguments.trim().isEmpty()) {
           // GH-253: IntelliJ only recognizes test names for re-runs when " [...]" is used...
           // Leave for now (backward compat?)
-          formattedArguments = " {" + formattedArguments.trim() + "}";
+          if (containerRunner == RunnerContainer.IDEA) {
+            formattedArguments = " [" + formattedArguments.trim() + "]";
+          } else {
+            formattedArguments = " {" + formattedArguments.trim() + "}";
+          }
         }
 
         Description description = Description.createSuiteDescription(
@@ -1490,7 +1498,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
             args.add((Object[]) o);
           }
         } catch (InvocationTargetException e) {
-          if (AssumptionViolatedException.class.isInstance(e.getCause())) {
+          if (isAssumptionViolated(e.getCause())) {
             return Collections.emptyList();
           }
           Rethrow.rethrow(e.getCause());
@@ -1511,6 +1519,11 @@ public final class RandomizedRunner extends Runner implements Filterable {
       }
     }
     return testCases;  
+  }
+
+  private boolean isAssumptionViolated(Throwable cause) {
+    return cause instanceof org.junit.AssumptionViolatedException ||
+           cause instanceof org.junit.internal.AssumptionViolatedException;
   }
 
   /**
@@ -1624,7 +1637,7 @@ public final class RandomizedRunner extends Runner implements Filterable {
   /**
    * Determine method iteration count based on (first declaration order wins):
    * <ul>
-   *  <li>global property {@link #SYSPROP_ITERATIONS}.</li>
+   *  <li>global property {@link SysGlobals#SYSPROP_ITERATIONS}.</li>
    *  <li>method annotation {@link Repeat}.</li>
    *  <li>class annotation {@link Repeat}.</li>
    *  <li>The default (1).</li>

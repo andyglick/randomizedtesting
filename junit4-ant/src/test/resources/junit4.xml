@@ -5,6 +5,7 @@
     <path id="junit.classpath">
         <fileset dir="..">
             <include name="dependency/junit-*.jar" />
+            <include name="dependency/hamcrest-*.jar" />
         </fileset>
     </path>
 
@@ -17,8 +18,7 @@
         <classpath refid="junit.classpath" />
         <classpath>
             <fileset dir=".." id="fileset.junit4">
-                <include name="junit4-ant*.jar" />
-                <exclude name="*proguard_base.jar" />
+                <filename regex="junit4\-ant\-([0-9]|\.)+(-SNAPSHOT)?.jar" />
             </fileset>
         </classpath>
     </taskdef>
@@ -1529,5 +1529,44 @@
         </junit4:report-text>
       </listeners>
     </junit4:junit4>
-  </target>  
+  </target>
+
+  <target name="gh255">
+    <makeurl property="junit.jar.url">
+      <fileset dir="../dependency" includes="junit-*.jar" />
+    </makeurl>
+    <makeurl property="junit4.jar.url">
+      <fileset refid="fileset.junit4" />
+    </makeurl>
+    <makeurl property="randomizedtesting.jar.url">
+      <fileset dir="../dependency" includes="randomizedtesting-runner*.jar" />
+    </makeurl>
+
+    <fail message="More than one file?">
+        <condition>
+         <not>
+             <resourcecount count="1">
+                 <fileset refid="fileset.junit4" />
+             </resourcecount>
+         </not>
+        </condition>
+    </fail>
+
+    <junit4.preconf haltonfailure="false" dir="${basedir}">
+      <jvmarg value="-Djava.security.manager" />
+      <jvmarg value="-Djava.security.debug=all,access,failure" />
+      <jvmarg value="-Djava.security.policy=${basedir}/security.policy" />
+      <jvmarg value="-Djunit.jar.url=${junit.jar.url}" />
+      <jvmarg value="-Djunit4.jar.url=${junit4.jar.url}" />
+      <jvmarg value="-Drandomizedtesting.jar.url=${randomizedtesting.jar.url}" />
+
+      <classpath>
+        <fileset refid="fileset.junit4" />
+      </classpath>
+
+      <fileset dir="${basedir}">
+        <include name="**/tests/TestSecuritySandbox.class" />
+      </fileset>
+    </junit4.preconf>
+  </target>
 </project>

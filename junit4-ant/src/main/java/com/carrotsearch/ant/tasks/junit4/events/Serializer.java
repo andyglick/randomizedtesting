@@ -95,15 +95,24 @@ public class Serializer implements Closeable {
         return this;
       }
 
-      // SlaveMain.warn("Serializing " + event.getType(), null);
       flushQueue();
 
       return this;
     }
   }
 
+  private final AtomicBoolean isFlushing = new AtomicBoolean();
   private void flushQueue() throws IOException {
-    synchronized (lock) {
+    if (!Thread.holdsLock(lock)) throw new IllegalStateException("Must be holding a lock on flushing.");
+
+    if (isFlushing.getAndSet(true)) {
+      // We're already flushing, return.
+      // SlaveMain.warn("Flush queue already flushing", null);
+      return;
+    }
+
+    // SlaveMain.warn("Flush queue start", null);
+    try {
       while (!events.isEmpty()) {
         if (writer == null) {
           throw new IOException("Serializer already closed, with " + events.size() + " events on queue.");
@@ -111,6 +120,7 @@ public class Serializer implements Closeable {
 
         final RemoteEvent event = events.removeFirst();
         try {
+          // SlaveMain.warn("Serializing " + event.getType(), null);
           AccessController.doPrivileged(new PrivilegedExceptionAction<Void>() {
             @Override
             public Void run() throws Exception {
@@ -127,7 +137,10 @@ public class Serializer implements Closeable {
           break;
         }
       }
+    } finally {
+      isFlushing.set(false);
     }
+    // SlaveMain.warn("Flush queue end", null);
 
     if (doForcedShutdown != null) {
       // We can't do a stack bang here so any call is a risk of hitting SOE again.

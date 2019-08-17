@@ -40,7 +40,7 @@ public class LocalSlaveStreamHandler implements ExecuteStreamHandler {
   private OutputStreamWriter stdinWriter;
 
   private final PrintStream warnStream;
-  private final InputStream eventStream;
+  private final TailInputStream eventStream;
   
   private volatile boolean stopping;
 
@@ -53,7 +53,7 @@ public class LocalSlaveStreamHandler implements ExecuteStreamHandler {
   private final OutputStream streamsBufferWrapper;
 
   public LocalSlaveStreamHandler(
-      EventBus eventBus, ClassLoader classLoader, PrintStream warnStream, InputStream eventStream,
+      EventBus eventBus, ClassLoader classLoader, PrintStream warnStream, TailInputStream eventStream,
       OutputStream sysout, OutputStream syserr, long heartbeat, final RandomAccessFile streamsBuffer) {
     this.eventBus = eventBus;
     this.warnStream = warnStream;
@@ -115,8 +115,8 @@ public class LocalSlaveStreamHandler implements ExecuteStreamHandler {
   public void start() throws IOException {
     lastActivity = System.currentTimeMillis();
 
-    pumpers.add(new Thread(new StreamPumper(stdout, sysout), "pumper-stdout"));
-    pumpers.add(new Thread(new StreamPumper(stderr, syserr), "pumper-stderr"));
+    pumpers.add(new Thread(new SimpleStreamPumper(stdout, sysout), "pumper-stdout"));
+    pumpers.add(new Thread(new SimpleStreamPumper(stderr, syserr), "pumper-stderr"));
     pumpers.add(new Thread("pumper-events") {
       public void run() {
         pumpEvents(eventStream);
@@ -283,10 +283,10 @@ public class LocalSlaveStreamHandler implements ExecuteStreamHandler {
         watchdog.interrupt();
       }
 
-      // Terminate all other pumpers.
-      final int defaultDelay = 2000;
+      // Wait for all stream pumpers.
+      eventStream.completeAtEnd();
       for (Thread t : pumpers) {
-        t.join(defaultDelay);
+        t.join();
         t.interrupt();
       }
     } catch (InterruptedException e) {
